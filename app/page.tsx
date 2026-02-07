@@ -34,19 +34,22 @@ export default function Page() {
   }, []);
 
   const renderPage = () => {
+    if (!deviceId) {
+      return <div className="flex items-center justify-center h-full">載入中...</div>;
+    }
     switch (activeTab) {
       case "home":
-        return <HomePage onNavigate={setActiveTab} />;
+        return <HomePage onNavigate={setActiveTab} deviceId={deviceId} />;
       case "timetable":
-        return <TimetablePage />;
+        return <TimetablePage deviceId={deviceId} />;
       case "transport":
         return <TransportPage />;
       case "calendar":
-        return <CalendarPage />;
+        return <CalendarPage deviceId={deviceId} />;
       case "news":
         return <NewsPage />;
       default:
-        return <HomePage onNavigate={setActiveTab} />;
+        return <HomePage onNavigate={setActiveTab} deviceId={deviceId} />;
     }
   };
 

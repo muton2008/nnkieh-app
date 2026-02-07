@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import {
   UserPlus,
   X,
@@ -29,14 +29,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
 
-import type {
-  NoteCategory,
-  NoteCategoryMeta,
-  CourseNote,
-  CourseItem,
-  WeekSchedule,
-  UserProfile,
-} from "@/lib/types";
+import type { NoteCategory, NoteCategoryMeta } from "@/lib/types/timetable";
+import type { WeekSchedule, CourseNote } from "@/lib/types/timetable";
+import type { JoinClassRequest, JoinClassResponse } from "@/lib/types/api";
+import type { FetchTimetableRequest, FetchTimetableResponse, SaveTimetableRequest, SaveTimetableResponse, GenerateCodeRequest, GenerateCodeResponse } from "@/lib/types/api";
+
 import {
   fetchTimetable,
   saveTimetable,
@@ -45,7 +42,7 @@ import {
   getLocalPrivateNotes,
   saveLocalPrivateNotes,
   getLocalUserProfile,
-} from "@/lib/api";
+} from "@/lib/api-client";
 
 // --- UI Constants ---
 const WEEKDAYS = ["一", "二", "三", "四", "五"] as const;
@@ -98,7 +95,8 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   const [showJoinDialog, setShowJoinDialog] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [classCode, setClassCode] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [joining, setJoining] = useState(false);
 
@@ -125,48 +123,88 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
 
   // --- Load data ---
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchTimetable(deviceId);
-        if (cancelled) return;
-        setSchedule(data.schedule);
-        setClassName(data.class_name);
-        setDefaultRoom(data.default_room);
-      } catch (e) {
-        console.error("[TimetablePage] fetch error:", e);
-      } finally {
-        if (!cancelled) setLoading(false);
+    const initializeData = async () => {
+      setLoading(true);
+      
+      const storedInviteCode = localStorage.getItem("invite_code");
+      if (storedInviteCode) setInviteCode(storedInviteCode);
+
+      const cacheRaw = localStorage.getItem("cache_timetable");
+      if (cacheRaw) {
+        try {
+          const cached = JSON.parse(cacheRaw);
+          const parsed = cached; 
+          setSchedule(parsed.schedule || {});
+          setClassName(parsed.class_name || "我的課表");
+          setDefaultRoom(parsed.default_room || "");
+        } catch (e) {
+          console.error("Cache parse error", e);
+        }
       }
-    })();
-    setPrivateNotes(getLocalPrivateNotes() as PrivateNoteStore);
 
-    // Load user profile overrides
-    const profile = getLocalUserProfile();
-    if (profile) {
-      setClassName(profile.class_name);
-      setDefaultRoom(profile.default_room);
-    }
+      const codeToUse = inviteCode || storedInviteCode;
+      if (codeToUse) {
+        try {
+          const data = await fetchTimetable({ invite_code: codeToUse });
+          if (data && data.schedule) {
+            setSchedule(data.schedule);
+            setClassName(data.class_name || "我的課表");
+            setDefaultRoom(data.default_room || "");
+            // 儲存時建議統一格式
+            localStorage.setItem("cache_timetable", JSON.stringify(data));
+          }
+        } catch (error) {
+          setClassName((prev) => prev === "載入中..." ? "我的課表 (離線模式)" : prev);
+        }
+      } else {
+        // 若無代碼也無快取，設定預設值
+        if (!cacheRaw) {
+          setClassName("我的課表");
+          setSchedule({});
+        }
+      }
+      setLoading(false);
+    };
 
-    return () => { cancelled = true; };
-  }, [deviceId]);
+    initializeData();
+  }, [inviteCode]); // 當 inviteCode 變動（如加入班級成功）時重新觸發
 
   // --- Auto-save schedule changes ---
   const triggerAutoSave = useCallback(
-    (newSchedule: WeekSchedule) => {
+    (newSchedule: WeekSchedule, newClassName: string, newDefaultRoom: string) => {
+      if (newClassName === "載入中..." || !newSchedule || Object.keys(newSchedule).length === 0) {
+        return;
+      }
+
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       setSaveStatus("saving");
+
       saveTimerRef.current = setTimeout(async () => {
         try {
-          await saveTimetable({ device_id: deviceId, schedule: newSchedule });
+          const payload = {
+            schedule: newSchedule,
+            class_name: newClassName,
+            default_room: newDefaultRoom,
+            updated_at: new Date().toISOString(),
+          };
+
+          localStorage.setItem("cache_timetable", JSON.stringify(payload));
+
+          if (inviteCode) {
+            await saveTimetable({
+              invite_code: inviteCode,
+              schedule: newSchedule,
+              class_name: newClassName,
+            });
+          }
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
-        } catch {
+        } catch (error) {
           setSaveStatus("idle");
         }
       }, 1500);
     },
-    [deviceId]
+    [inviteCode]
   );
 
   // --- Week dates ---
@@ -224,7 +262,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     saveLocalPrivateNotes(store);
     setPrivateNotes(store);
     setNewNoteText("");
-  }, [detailSheet, newNoteText, newNoteCategory, privateNotes]);
+  }, [detailSheet, newNoteText, newNoteCategory, privateNotes, className]);
 
   const removeNote = useCallback(
     (noteIndex: number) => {
@@ -257,7 +295,6 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     const newSchedule = { ...schedule };
     const dayArr = [...(newSchedule[editCell.day] || [])];
 
-    // Ensure array is long enough
     while (dayArr.length <= editCell.periodIdx) {
       dayArr.push({ subject: "", teacher: "", room: "", notes: [] });
     }
@@ -269,10 +306,11 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       room: editRoom.trim(),
     };
     newSchedule[editCell.day] = dayArr;
+
     setSchedule(newSchedule);
     setEditCell(null);
-    triggerAutoSave(newSchedule);
-  }, [editCell, editSubject, editTeacher, editRoom, schedule, triggerAutoSave]);
+    triggerAutoSave(newSchedule, className, defaultRoom);
+  }, [editCell, editSubject, editTeacher, editRoom, schedule, triggerAutoSave, className, defaultRoom]);
 
   const clearEditCell = useCallback(() => {
     if (!editCell) return;
@@ -283,36 +321,45 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       newSchedule[editCell.day] = dayArr;
       setSchedule(newSchedule);
       setEditCell(null);
-      triggerAutoSave(newSchedule);
+      triggerAutoSave(newSchedule, className, defaultRoom);
     }
-  }, [editCell, schedule, triggerAutoSave]);
+  }, [editCell, schedule, triggerAutoSave, className, defaultRoom]);
 
   // --- Class code ---
   const handleGenerateCode = useCallback(async () => {
-    const res = await generateClassCode({ device_id: deviceId });
+    if (isGenerating) return;
+    setIsGenerating(true);
+
+    const res = await generateClassCode({ device_id: deviceId , schedule: schedule, class_name: className }) as GenerateCodeResponse;
     if (res.success) {
-      setClassCode(res.code);
-      localStorage.setItem("class_code", res.code);
+      setInviteCode(res.invite_code);
+      localStorage.setItem("invite_code", res.invite_code);
     }
-  }, [deviceId]);
+    setIsGenerating(false);
+  }, [deviceId, schedule, className, isGenerating]);
 
   const handleCopyCode = useCallback(() => {
-    if (classCode) {
-      navigator.clipboard.writeText(classCode);
+    if (inviteCode) {
+      navigator.clipboard.writeText(inviteCode);
       setCodeCopied(true);
       setTimeout(() => setCodeCopied(false), 2000);
     }
-  }, [classCode]);
+  }, [inviteCode]);
 
   const handleJoin = useCallback(async () => {
-    if (joinCode.length < 7) return;
+    if (!joinCode || joinCode.length < 7) return;
     setJoining(true);
     try {
-      const res = await joinClass({ device_id: deviceId, invite_code: joinCode });
+      let code = joinCode
+      if ( joinCode.length === 6){
+        code = joinCode.slice(0,3) + "-" + joinCode.slice(3);
+      }
+      console.log("Attempting to join class with code:", code);
+      const res = await joinClass({ invite_code: code });
       if (res.success && res.class_name) {
         setClassName(res.class_name);
         // Refetch timetable after joining
-        const data = await fetchTimetable(deviceId);
+        const data = await fetchTimetable({ invite_code: code });
         setSchedule(data.schedule);
       }
     } finally {
@@ -320,12 +367,12 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       setShowJoinDialog(false);
       setJoinCode("");
     }
-  }, [joinCode, deviceId]);
+  }, [joinCode]);
 
   // Load class code from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem("class_code");
-    if (stored) setClassCode(stored);
+    const stored = localStorage.getItem("invite_code");
+    if (stored) setInviteCode(stored);
   }, []);
 
   // Current detail
@@ -342,7 +389,22 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         <div>
           <h1 className="font-serif text-xl font-semibold text-foreground">課表</h1>
           <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-xs text-muted-foreground font-light">{className}</p>
+            {isEditing ? (
+              <input
+                type="text"
+                value={className}
+                onChange={(e) => {
+                  const newName = e.target.value;
+                  setClassName(newName);
+                  triggerAutoSave(schedule, newName, defaultRoom);
+                }}
+                className="bg-transparent border-none text-lg font-bold focus:outline-none focus:ring-0 w-full p-0 h-auto"
+                placeholder="輸入班級名稱..."
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground font-light">{className}</p>
+            )}
+            
             {saveStatus === "saving" && (
               <span className="text-[9px] text-muted-foreground/40 font-light animate-pulse">儲存中...</span>
             )}
@@ -733,10 +795,10 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
             type="text"
             value={joinCode}
             onChange={(e) => {
-              const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+              const v = e.target.value.replace(/[^a-zA-Z0-9-]/g, "");
               if (v.length <= 8) setJoinCode(v);
             }}
-            placeholder="例如：z2a-pxq5"
+            placeholder="例如：z2a-Pxq5"
             className="w-full border border-border rounded-sm px-3 py-2.5 text-center text-base font-mono text-foreground bg-background placeholder:text-muted-foreground/30 tracking-[0.3em] focus:outline-none focus:ring-1 focus:ring-ring"
             maxLength={8}
             autoFocus
@@ -758,24 +820,36 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
               分享此代碼讓其他同學加入你的課表
             </DialogDescription>
           </DialogHeader>
-          {classCode ? (
+          {inviteCode ? (
             <div className="space-y-3">
               <div className="bg-secondary/60 border border-border rounded-sm px-4 py-3 text-center">
-                <span className="text-xl font-mono font-semibold text-foreground tracking-[0.3em]">{classCode}</span>
+                {/* 如果正在生成中，讓文字變模糊或顯示載入感 */}
+                <span className={`text-xl font-mono font-semibold text-foreground tracking-[0.3em] ${isGenerating ? "animate-pulse opacity-50" : ""}`}>
+                  {inviteCode}
+                </span>
               </div>
-              <Button variant="outline" className="w-full rounded-sm bg-transparent" onClick={handleCopyCode}>
+              
+              <Button variant="outline" className="w-full rounded-sm bg-transparent" onClick={handleCopyCode} disabled={isGenerating}>
                 {codeCopied ? <Check size={14} className="mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
                 {codeCopied ? "已複製" : "複製代碼"}
               </Button>
-              <button onClick={handleGenerateCode} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors font-light">
-                重新生成代碼
-              </button>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground font-light text-center py-4">你還沒有生成班級代碼</p>
-              <Button className="w-full rounded-sm" onClick={handleGenerateCode}>
-                生成班級代碼
+              <Button 
+                className="w-full rounded-sm" 
+                onClick={handleGenerateCode} 
+                disabled={isGenerating || !!inviteCode}
+              >
+                {isGenerating ? (
+                  <>
+                    <RefreshCw size={14} className="mr-1.5 animate-spin" />
+                    生成中...
+                  </>
+                ) : (
+                  "生成班級代碼"
+                )}
               </Button>
             </div>
           )}

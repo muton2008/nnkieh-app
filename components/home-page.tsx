@@ -10,9 +10,11 @@ import {
   Settings,
 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
-import type { TabId, TodayScheduleItem, UpcomingEvent, UserProfile } from "@/lib/types";
-import { DEFAULT_USER_PROFILE } from "@/lib/types";
-import { fetchTimetable, fetchSchoolCalendar, getLocalUserProfile } from "@/lib/api";
+import type { TabId } from "@/lib/types/common";
+import { UserProfile } from "@/lib/types/user";
+
+import { DEFAULT_USER_PROFILE } from "@/lib/types/user";
+import { fetchTimetable, fetchSchoolCalendar, getLocalUserProfile } from "@/lib/api-client";
 
 // --- UI Constants ---
 const GREETING_MESSAGES = [

@@ -10,7 +10,7 @@ import {
   getLocalUserProfile,
   saveLocalUserProfile,
   syncUserProfile,
-} from "@/lib/api";
+} from "@/lib/api-client";
 
 interface SettingsPageProps {
   deviceId: string;

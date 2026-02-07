@@ -17,7 +17,7 @@ import {
   fetchAnnouncements,
   getReadAnnouncementIds,
   markAnnouncementAsRead,
-} from "@/lib/api";
+} from "@/lib/api-client";
 
 // --- UI Constants ---
 const CATEGORY_LABELS: Record<AnnouncementCategory, string> = {

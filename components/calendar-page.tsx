@@ -13,16 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
 
-import type {
-  SchoolCalendarEvent,
-  PrivateCalendarEvent,
-} from "@/lib/types";
+import { SchoolCalendarEvent, PrivateCalendarEvent } from "@/lib/types/calendar";
 import {
   fetchSchoolCalendar,
   getLocalPrivateEvents,
   saveLocalPrivateEvents,
   syncPrivateEvents,
-} from "@/lib/api";
+} from "@/lib/api-client";
 
 // --- Color options for private events ---
 const COLOR_OPTIONS = [

@@ -8,7 +8,7 @@ import {
   Megaphone,
   Settings,
 } from "lucide-react";
-import type { TabId } from "@/lib/types";
+import { TabId } from "@/lib/types/common";
 
 const TABS: { id: TabId; label: string; icon: typeof Home }[] = [
   { id: "home", label: "首頁", icon: Home },
