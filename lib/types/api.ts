@@ -70,6 +70,24 @@ export interface FetchTimetableResponse {
   message?: string;
 }
 
+/** 新增課表備註 */
+export interface AddNoteRequest {
+  invite_code: string;
+  day: string;
+  period_idx: number;
+  note: {
+    text: string;
+    category: string;
+    date: string; // YYYY-MM-DD
+  };
+}
+
+export interface AddNoteResponse {
+  success: boolean;
+  note_id?: string;
+  message?: string;
+}
+
 // ============================================================
 // 2. 行事曆 (Calendar)
 // ============================================================

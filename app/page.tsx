@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BottomNav, type TabId } from "@/components/bottom-nav";
+import { BottomNav } from "@/components/bottom-nav";
+import { TabId } from "@/lib/types/common";
 import { HomePage } from "@/components/home-page";
 import { TimetablePage } from "@/components/timetable-page";
 import { TransportPage } from "@/components/transport-page";

@@ -12,6 +12,13 @@ export interface CourseNote {
   text: string;
   category: NoteCategory;
   source: "public" | "private";
+  date: string; // YYYY-MM-DD
+}
+
+export interface privateNote {
+  text: string;
+  category: NoteCategory;
+  date: string; // YYYY-MM-DD
 }
 
 export interface CourseItem {
@@ -31,5 +38,5 @@ export interface PeriodDef {
 
 export type PrivateNoteStore = Record<
   string,
-  Record<number, { text: string; category: NoteCategory }[]>
+  Record<number, privateNote[]>
 >;

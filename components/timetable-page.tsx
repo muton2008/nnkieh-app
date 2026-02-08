@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
 
-import type { NoteCategory, NoteCategoryMeta } from "@/lib/types/timetable";
+import type { NoteCategory, NoteCategoryMeta, privateNote } from "@/lib/types/timetable";
 import type { WeekSchedule, CourseNote } from "@/lib/types/timetable";
 import type { JoinClassRequest, JoinClassResponse } from "@/lib/types/api";
 import type { FetchTimetableRequest, FetchTimetableResponse, SaveTimetableRequest, SaveTimetableResponse, GenerateCodeRequest, GenerateCodeResponse } from "@/lib/types/api";
@@ -39,6 +39,7 @@ import {
   saveTimetable,
   joinClass,
   generateClassCode,
+  addTimetableNote,
   getLocalPrivateNotes,
   saveLocalPrivateNotes,
   getLocalUserProfile,
@@ -78,8 +79,40 @@ function getCategoryMeta(cat: NoteCategory): NoteCategoryMeta {
   return NOTE_CATEGORIES.find((c) => c.id === cat)!;
 }
 
+// 計算本週某天的具體日期字串 (YYYY-MM-DD)
+const getDayDate = (dayIndex: number) => {
+  const today = new Date();
+  const day = today.getDay(); // 0 是週日
+  const diff = today.getDate() - (day === 0 ? 6 : day - 1) + dayIndex;
+  const targetDate = new Date(today.setDate(diff));
+  return targetDate.toISOString().split('T')[0];
+};
+
+/**
+ * 根據星期索引與週次偏移量，計算具體的日期 (YYYY-MM-DD)
+ * @param dayIndex 星期幾的索引 (0=週一, 1=週二...)
+ * @param weekOffset 目前週次的偏移 (0=本週, 1=下週, -1=上週)
+ */
+const getDayDateWithOffset = (dayIndex: number, weekOffset: number) => {
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0 是週日
+  // 計算今天距離「本週一」差幾天 (若今天是週日(0)，則 diff 是 -6)
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  
+  const targetDate = new Date(today);
+  // 設定日期：今天 + 修正到週一的差 + (週偏移 * 7) + 星期索引
+  targetDate.setDate(today.getDate() + diffToMonday + (weekOffset * 7) + dayIndex);
+  
+  // 使用本地時區格式化為 YYYY-MM-DD
+  const year = targetDate.getFullYear();
+  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+  const date = String(targetDate.getDate()).padStart(2, '0');
+  
+  return `${year}-${month}-${date}`;
+};
+
 // Private notes localStorage type
-type PrivateNoteStore = Record<string, Record<number, { text: string; category: NoteCategory }[]>>;
+type PrivateNoteStore = Record<string, Record<number, privateNote[]>>;
 
 interface TimetablePageProps {
   deviceId: string;
@@ -112,6 +145,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   const [editSubject, setEditSubject] = useState("");
   const [editTeacher, setEditTeacher] = useState("");
   const [editRoom, setEditRoom] = useState("");
+  const [isSubmittingNote, setIsSubmittingNote] = useState(false);
 
   // Week navigation
   const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
@@ -126,48 +160,67 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     const initializeData = async () => {
       setLoading(true);
       
+      // 優先處理本地快取 (立即顯示) ---
+      const loadedPrivateNotes = getLocalPrivateNotes();
+      setPrivateNotes(loadedPrivateNotes);
+      
       const storedInviteCode = localStorage.getItem("invite_code");
-      if (storedInviteCode) setInviteCode(storedInviteCode);
-
       const cacheRaw = localStorage.getItem("cache_timetable");
+      
       if (cacheRaw) {
         try {
           const cached = JSON.parse(cacheRaw);
-          const parsed = cached; 
-          setSchedule(parsed.schedule || {});
-          setClassName(parsed.class_name || "我的課表");
-          setDefaultRoom(parsed.default_room || "");
+          setSchedule(cached.schedule || {});
+          setClassName(cached.class_name || "我的課表");
+          setDefaultRoom(cached.default_room || "");
+
+          // 如果有邀請碼，強制對齊雲端 DB ---
+          const activeCode = inviteCode || storedInviteCode;
+          if (activeCode) {
+            try {
+              // 設定目前的邀請碼狀態
+              if (!inviteCode) setInviteCode(activeCode);
+
+              // 強制從 DB 抓取最新資料
+              const res = await fetchTimetable({ invite_code: activeCode });
+              
+              if (res && res.schedule) {
+                // 以雲端為準：覆蓋本地狀態 ---
+                setSchedule(res.schedule);
+                setClassName(res.class_name || "我的課表");
+                setDefaultRoom(res.default_room || "");
+                
+                // 更新本地快取，確保下次載入時快取就是這份新的
+                const updatedCache = {
+                  ...res,
+                  invite_code: activeCode,
+                  updated_at: new Date().toISOString(),
+                };
+                localStorage.setItem("cache_timetable", JSON.stringify(updatedCache));
+              }
+            } catch (error) {
+              console.error("同步雲端失敗:", error);
+              setClassName((prev) => prev === "載入中..." ? "我的課表 (離線模式)" : prev);
+            }
+          }
         } catch (e) {
-          console.error("Cache parse error", e);
+          console.error("快取解析失敗", e);
         }
+      }else {
+        setClassName("我的課表");
+        setDefaultRoom("原班");
+        setSchedule({});
       }
 
-      const codeToUse = inviteCode || storedInviteCode;
-      if (codeToUse) {
-        try {
-          const data = await fetchTimetable({ invite_code: codeToUse });
-          if (data && data.schedule) {
-            setSchedule(data.schedule);
-            setClassName(data.class_name || "我的課表");
-            setDefaultRoom(data.default_room || "");
-            // 儲存時建議統一格式
-            localStorage.setItem("cache_timetable", JSON.stringify(data));
-          }
-        } catch (error) {
-          setClassName((prev) => prev === "載入中..." ? "我的課表 (離線模式)" : prev);
-        }
-      } else {
-        // 若無代碼也無快取，設定預設值
-        if (!cacheRaw) {
-          setClassName("我的課表");
-          setSchedule({});
-        }
-      }
+      
+      
       setLoading(false);
     };
 
     initializeData();
-  }, [inviteCode]); // 當 inviteCode 變動（如加入班級成功）時重新觸發
+  // 這裡移除 [inviteCode] 依賴，改由手動觸發或保持空陣列，防止無限迴圈
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Auto-save schedule changes ---
   const triggerAutoSave = useCallback(
@@ -190,7 +243,9 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
 
           localStorage.setItem("cache_timetable", JSON.stringify(payload));
 
+          console.log("inviteCode in triggerAutoSave:", inviteCode);
           if (inviteCode) {
+            console.log("Auto-saving to cloud...", payload);
             await saveTimetable({
               invite_code: inviteCode,
               schedule: newSchedule,
@@ -238,6 +293,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         text: n.text,
         category: n.category,
         source: "private" as const,
+        date: n.date,
       }));
       return [...publicNotes, ...privates];
     },
@@ -250,32 +306,124 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     setDetailSheet({ day, periodIdx });
   }, []);
 
-  const addNote = useCallback(() => {
+  const addNote = useCallback(async () => {
     if (!detailSheet || !newNoteText.trim()) return;
-    const store = { ...privateNotes };
-    if (!store[detailSheet.day]) store[detailSheet.day] = {};
-    if (!store[detailSheet.day][detailSheet.periodIdx]) store[detailSheet.day][detailSheet.periodIdx] = [];
-    store[detailSheet.day][detailSheet.periodIdx] = [
-      ...store[detailSheet.day][detailSheet.periodIdx],
-      { text: newNoteText.trim(), category: newNoteCategory },
-    ];
-    saveLocalPrivateNotes(store);
-    setPrivateNotes(store);
-    setNewNoteText("");
-  }, [detailSheet, newNoteText, newNoteCategory, privateNotes, className]);
-
-  const removeNote = useCallback(
-    (noteIndex: number) => {
-      if (!detailSheet) return;
+    setIsSubmittingNote(true);
+    const { day, periodIdx } = detailSheet;
+    const dayIndex = WEEKDAYS.indexOf(day as any);
+    const targetDate = getDayDateWithOffset(dayIndex, currentWeekOffset);
+    
+    // 如果是私人備註，只存到本地
+    if (newNoteCategory === "private") {
       const store = { ...privateNotes };
-      const arr = [...(store[detailSheet.day]?.[detailSheet.periodIdx] || [])];
-      arr.splice(noteIndex, 1);
       if (!store[detailSheet.day]) store[detailSheet.day] = {};
-      store[detailSheet.day] = { ...store[detailSheet.day], [detailSheet.periodIdx]: arr };
+      if (!store[detailSheet.day][detailSheet.periodIdx]) store[detailSheet.day][detailSheet.periodIdx] = [];
+      store[detailSheet.day][detailSheet.periodIdx] = [
+        ...store[detailSheet.day][detailSheet.periodIdx],
+        { text: newNoteText.trim(), category: newNoteCategory, date: targetDate },
+      ];
       saveLocalPrivateNotes(store);
       setPrivateNotes(store);
+      setNewNoteText("");
+      setIsSubmittingNote(false);
+      return;
+    }
+
+    // 如果是公開備註且有邀請碼，同步到雲端
+    if (inviteCode) {
+      try {
+        const res = await addTimetableNote({
+          invite_code: inviteCode,
+          day: detailSheet.day,
+          period_idx: detailSheet.periodIdx,
+          note: {
+            text: newNoteText.trim(),
+            category: newNoteCategory,
+            date: targetDate,
+          },
+        });
+
+        if (res.success) {
+          // 重新抓取課表以更新 UI
+          const data = await fetchTimetable({ invite_code: inviteCode });
+          setSchedule(data.schedule);
+          setNewNoteText("");
+        }
+        setIsSubmittingNote(false);
+      } catch (error) {
+        console.error("新增備註失敗:", error);
+        // 可以在這裡加入錯誤提示
+        setIsSubmittingNote(false);
+      }
+    } else {
+      // 沒有邀請碼但想加公開備註，先存到本地 schedule
+      const newSchedule = { ...schedule };
+      const dayArr = [...(newSchedule[detailSheet.day] || [])];
+      
+      while (dayArr.length <= detailSheet.periodIdx) {
+        dayArr.push({ subject: "", teacher: "", room: "", notes: [] });
+      }
+
+      if (!dayArr[detailSheet.periodIdx].notes) {
+        dayArr[detailSheet.periodIdx].notes = [];
+      }
+
+      dayArr[detailSheet.periodIdx].notes.push({
+        id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        text: newNoteText.trim(),
+        category: newNoteCategory,
+        source: "public",
+        date: targetDate,
+      });
+
+      newSchedule[detailSheet.day] = dayArr;
+      setSchedule(newSchedule);
+      setNewNoteText("");
+      
+      // 觸發自動儲存到本地快取
+      triggerAutoSave(newSchedule, className, defaultRoom);
+      setIsSubmittingNote(false);
+    }
+  }, [detailSheet, newNoteText, newNoteCategory, privateNotes, inviteCode, schedule, className, defaultRoom, triggerAutoSave]);
+
+  const removeNote = useCallback(
+    async (noteId: string, source: "public" | "private") => {
+      if (!detailSheet) return;
+      const { day, periodIdx } = detailSheet;
+
+      if (source === "private") {
+        // 私人備註：過濾掉該 ID
+        const store = { ...privateNotes };
+        if (store[day]?.[periodIdx]) {
+          store[day][periodIdx] = store[day][periodIdx].filter((_, i) => `priv-${i}` !== noteId);
+          localStorage.setItem("private_notes", JSON.stringify(store));
+          saveLocalPrivateNotes(store);
+          setPrivateNotes(store);
+        }
+      } else {
+        // 公用備註：過濾掉後端 ID
+        const newSchedule = { ...schedule };
+        if (newSchedule[day]?.[periodIdx]?.notes) {
+          // 直接比對 ID
+          newSchedule[day][periodIdx].notes = newSchedule[day][periodIdx].notes.filter(n => n.id !== noteId);
+          setSchedule(newSchedule);
+          
+          // 同步到雲端 (覆寫整個 schedule)
+          if (inviteCode) {
+            await saveTimetable({
+              invite_code: inviteCode,
+              schedule: newSchedule,
+              class_name: className,
+            });
+          }
+          localStorage.setItem("cache_timetable", JSON.stringify({
+            schedule: newSchedule,
+            updated_at: new Date().toISOString(),
+          }));
+        }
+      }
     },
-    [detailSheet, privateNotes]
+    [detailSheet, privateNotes, schedule, inviteCode, className]
   );
 
   // --- Course editing ---
@@ -377,7 +525,19 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
 
   // Current detail
   const detailCourse = detailSheet ? schedule[detailSheet.day]?.[detailSheet.periodIdx] : null;
-  const detailNotes = detailSheet ? getCellNotes(detailSheet.day, detailSheet.periodIdx) : [];
+
+  // 先取得目前格子的所有備註（公開 + 私人）
+  const allCellNotes = detailSheet ? getCellNotes(detailSheet.day, detailSheet.periodIdx) : [];
+  // 計算目前點擊的格子對應的具體日期
+  const currentCellDate = detailSheet 
+    ? getDayDateWithOffset(WEEKDAYS.indexOf(detailSheet.day as any), currentWeekOffset)
+    : "";
+  // 過濾：只顯示日期相符的備註 (且相容舊的沒日期的備註)
+  const displayNotes = allCellNotes.filter(note => {
+    if (!note.date) return true; // 為了相容性，沒有日期的視為永久備註
+    return note.date === currentCellDate;
+  });
+
   const detailPeriod = detailSheet ? PERIODS[detailSheet.periodIdx] : null;
 
   const weekLabel = `${weekDates[0].getMonth() + 1}/${weekDates[0].getDate()} - ${weekDates[4].getMonth() + 1}/${weekDates[4].getDate()}`;
@@ -499,7 +659,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
           </div>
         ) : (
           <div className="overflow-x-auto thin-scrollbar">
-            <table className="w-full border-collapse min-w-[360px]">
+            <table className="w-full border-collapse min-w-[360px] table-fixed">
               <thead>
                 <tr>
                   <th className="w-9 p-1" />
@@ -507,7 +667,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                     const date = weekDates[idx];
                     const today = isToday(date);
                     return (
-                      <th key={day} className={`p-1 text-center ${today ? "relative" : ""}`}>
+                      <th key={day} className={`p-1 text-center w-[calc((100%-40px)/5)] ${today ? "relative" : ""}`}>
                         <div className={`flex flex-col items-center py-1 rounded-sm ${today ? "bg-foreground text-background" : ""}`}>
                           <span className={`text-[10px] font-light ${today ? "text-background/70" : "text-muted-foreground"}`}>{day}</span>
                           <span className={`text-sm font-medium tabular-nums ${today ? "text-background" : "text-foreground"}`}>{date.getDate()}</span>
@@ -543,7 +703,11 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                       </td>
                       {WEEKDAYS.map((day, dayIdx) => {
                         const course = schedule[day]?.[periodIdx];
-                        const notes = getCellNotes(day, periodIdx);
+                        const rawNotes = getCellNotes(day, periodIdx);
+                        const currentCellDate = getDayDateWithOffset(dayIdx, currentWeekOffset);
+                        const filteredNotesForCell = rawNotes.filter(note => 
+                          !note.date || note.date === currentCellDate
+                        );
                         const isEmpty = !course?.subject;
                         const today = isToday(weekDates[dayIdx]);
 
@@ -557,7 +721,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                                   openDetail(day, periodIdx);
                                 }
                               }}
-                              className={`w-full min-h-[3.2rem] rounded-sm p-1.5 text-left transition-all
+                              className={`w-full h-[3.2rem] rounded-sm p-1.5 text-left transition-all overflow-hidden flex flex-col
                                 ${isEmpty
                                   ? isEditing
                                     ? "bg-muted/20 border border-dashed border-border/40 hover:border-foreground/30 cursor-pointer"
@@ -571,27 +735,27 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                             >
                               {!isEmpty && (
                                 <>
-                                  <span className="text-[11px] font-medium text-foreground leading-tight block truncate">
+                                  <span className="text-[11px] font-medium text-foreground leading-tight block truncate flex-shrink-0">
                                     {course!.subject}
                                   </span>
-                                  <span className="text-[9px] text-muted-foreground/50 font-light block truncate">
+                                  <span className="text-[9px] text-muted-foreground/50 font-light block truncate flex-shrink-0">
                                     {course!.room}
                                   </span>
-                                  {notes.length > 0 && (
-                                    <div className="flex flex-wrap gap-0.5 mt-0.5">
-                                      {notes.slice(0, 2).map((note) => {
+                                  {filteredNotesForCell.length > 0 && (
+                                    <div className="flex gap-0.5 mt-0.5 overflow-hidden flex-shrink-0">
+                                      {filteredNotesForCell.slice(0, 2).map((note) => {
                                         const meta = getCategoryMeta(note.category);
                                         return (
                                           <span
                                             key={note.id}
-                                            className={`text-[7px] px-1 py-px rounded-sm border font-light leading-tight ${meta.bg}`}
+                                            className={`text-[7px] px-1 py-px rounded-sm border font-light leading-tight whitespace-nowrap ${meta.bg}`}
                                           >
                                             {meta.label}
                                           </span>
                                         );
                                       })}
-                                      {notes.length > 2 && (
-                                        <span className="text-[7px] text-muted-foreground/40">+{notes.length - 2}</span>
+                                      {filteredNotesForCell.length > 2 && (
+                                        <span className="text-[7px] text-muted-foreground/40 whitespace-nowrap">+{filteredNotesForCell.length - 2}</span>
                                       )}
                                     </div>
                                   )}
@@ -659,30 +823,27 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
             </div>
 
             {/* Existing notes */}
-            {detailNotes.length > 0 && (
+            {displayNotes.length > 0 && (
               <div className="space-y-2 mb-4">
                 <span className="text-[10px] text-muted-foreground/60 font-light">備註</span>
-                {detailNotes.map((note, idx) => {
+                {displayNotes.map((note) => {
                   const meta = getCategoryMeta(note.category);
                   return (
                     <div key={note.id} className={`flex items-start justify-between gap-2 rounded-sm border px-3 py-2 ${meta.bg}`}>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 rounded-sm border ${meta.bg} font-light`}>
-                            {note.source === "public" ? "公用" : "私人"} &middot; {meta.label}
-                          </Badge>
-                        </div>
                         <p className="text-sm text-foreground">{note.text}</p>
+                        <Badge variant="outline" className="text-[9px] mt-1">
+                          {note.source === "public" ? "公用" : "私人"}
+                        </Badge>
                       </div>
-                      {note.source === "private" && (
-                        <button
-                          onClick={() => removeNote(idx - (detailCourse?.notes?.length || 0))}
-                          className="text-muted-foreground/40 hover:text-destructive transition-colors flex-shrink-0 mt-0.5"
-                          aria-label="刪除備註"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
+                      
+                      {/* 傳入 note.id 與 note.source */}
+                      <button
+                        onClick={() => removeNote(note.id, note.source)}
+                        className="text-muted-foreground/40 hover:text-destructive transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   );
                 })}
@@ -717,8 +878,19 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                 className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
                 rows={2}
               />
-              <Button onClick={addNote} disabled={!newNoteText.trim()} className="w-full mt-2 rounded-sm" size="sm">
-                新增備註
+              <Button 
+                onClick={addNote} 
+                disabled={isSubmittingNote || !newNoteText.trim()}
+                className="rounded-sm"
+              >
+                {isSubmittingNote ? (
+                  <>
+                    <RefreshCw size={14} className="mr-1.5 animate-spin" />
+                    儲存中...
+                  </>
+                ) : (
+                  "新增備註"
+                )}
               </Button>
             </div>
           </div>

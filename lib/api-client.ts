@@ -1,4 +1,5 @@
 import { UserProfile } from "@/lib/types/user";
+import { PrivateNoteStore } from "@/lib/types/timetable";
 import {
   FetchTimetableRequest,
   FetchTimetableResponse,
@@ -10,7 +11,9 @@ import {
   JoinClassResponse,
   FetchSchoolCalendarResponse,
   FetchAnnouncementsResponse,
-  TransportDataResponse
+  TransportDataResponse,
+  AddNoteRequest,
+  AddNoteResponse
 } from "@/lib/types/api";
 
 
@@ -59,18 +62,28 @@ export function saveLocalUserProfile(profile: UserProfile): void {
   localStorage.setItem("user_profile", JSON.stringify(profile));
 }
 
+export function getLocalPrivateNotes(): PrivateNoteStore {
+  if (typeof window === "undefined") return {};
+  const raw = localStorage.getItem("private_notes");
+  return raw ? JSON.parse(raw) : {};
+}
+
+export function saveLocalPrivateNotes(notes: PrivateNoteStore): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("private_notes", JSON.stringify(notes));
+}
+
 // ============================================================
 // 2. 課表系統 (實戰 API)
 // ============================================================
 
 /** 取得雲端課表 */
 export async function fetchTimetable(req: FetchTimetableRequest): Promise<FetchTimetableResponse> {
-  const cacheKey = `cache_timetable_${req.invite_code}`;
-  const cached = getCachedData<FetchTimetableResponse>(cacheKey);
+  const cached = getCachedData<FetchTimetableResponse>("cache_timetable");
   if (cached?.fresh) return cached.data;
 
   const data = await request<FetchTimetableResponse>(`/api/timetable?invite_code=${req.invite_code}`);
-  setCachedData(cacheKey, data);
+  setCachedData("cache_timetable", data);
   return data;
 }
 
@@ -96,21 +109,17 @@ export async function joinClass(req: JoinClassRequest): Promise<JoinClassRespons
     body: JSON.stringify(req),
   });
 }
-// ============================================================
-// 3. 交通/行事曆/公告 (目前維持精美 Mock)
-// ============================================================
 
-
-export async function fetchTransportData(): Promise<TransportDataResponse> {
-  await new Promise(r => setTimeout(r, 500));
-  return {
-    trains_south: [{ id: "272", type: "區間", destination: "嘉義", departure: "17:23", status: "準點" }],
-    trains_north: [{ id: "171", type: "自強", destination: "台北", departure: "17:15", status: "準點" }],
-    buses: [{ route: "綠1", destination: "台南火車站", eta: "3 分鐘", status: "進站中" }],
-    youbike: [{ name: "南科實中站", available: 8, empty: 12, total: 20 }],
-    updated_at: new Date().toISOString(),
-  };
+/** 新增課表備註 */
+export async function addTimetableNote(req: AddNoteRequest): Promise<AddNoteResponse> {
+  return request<AddNoteResponse>("/api/timetable/notes", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
 }
+// ============================================================
+// 3. 行事曆/公告 (目前維持精美 Mock)
+// ============================================================
 
 export async function fetchSchoolCalendar(): Promise<FetchSchoolCalendarResponse> {
   await new Promise(r => setTimeout(r, 400));

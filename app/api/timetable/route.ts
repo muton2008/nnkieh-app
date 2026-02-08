@@ -48,9 +48,9 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   const body: SaveTimetableRequest = await request.json();
-  const { invite_code, schedule } = body;
+  const { invite_code, schedule, class_name } = body;
 
-  if (!invite_code || !schedule) {
+  if (!invite_code) {
     return NextResponse.json({ success: false, message: "參數不足" }, { status: 400 });
   }
 
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
   const { error } = await supabase
     .from('classes')
     .update({ 
-      schedule, 
+      ...(schedule && { schedule }),
+      ...(class_name && { class_name }),
       updated_at: new Date().toISOString() 
     })
     .eq('invite_code', invite_code);
