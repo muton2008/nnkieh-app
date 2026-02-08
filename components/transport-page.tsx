@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
+import { TransportDataResponse } from "@/lib/types/api";
 
 // --- MOCK DATA (CONSTANTS) ---
 type TrainInfo = {
@@ -41,11 +42,11 @@ const MOCK_YOUBIKE = [
 // Placeholder: API fetch functions
 // Should check if cache is older than 60 seconds before making API request
 const fetchTransportData = async () => {
-  // TODO: Implement actual API calls
-  // - TRA: https://tdx.transportdata.tw/...
-  // - Bus: https://tdx.transportdata.tw/...
-  // - YouBike: https://api.youbike.com.tw/...
-  return new Promise((resolve) => setTimeout(resolve, 500));
+  const response = await fetch("/api/transport");
+  if (!response.ok) {
+    throw new Error("Failed to fetch transport data");
+  }
+  return response.json() as Promise<TransportDataResponse>;
 };
 
 function TrainRow({ train }: { train: TrainInfo }) {
@@ -99,6 +100,23 @@ export function TransportPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [transportData, setTransportData] = useState<TransportDataResponse | null>(null);
+
+  const initFetch = useCallback(async () => {
+    try {
+      const data = await fetchTransportData();
+      setTransportData(data);
+      setLastUpdate(Date.now());
+    } catch (error) {
+      console.error("初始化載入失敗:", error);
+    } finally {
+      setLoading(false); // 無論成功失敗都結束 loading 狀態
+    }
+  }, []);
+
+  useEffect(() => {
+    initFetch();
+  }, [initFetch]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -118,11 +136,18 @@ export function TransportPage() {
   }, [lastUpdate]);
 
   const handleRefresh = useCallback(async () => {
+    if (refreshing) return; // 防止重複點擊
     setRefreshing(true);
-    await fetchTransportData();
-    setLastUpdate(Date.now());
-    setRefreshing(false);
-  }, []);
+    try {
+      const data = await fetchTransportData();
+      setTransportData(data);
+      setLastUpdate(Date.now());
+    } catch (error) {
+      alert("更新失敗，請檢查網路連線");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing]);
 
   return (
     <div className="flex flex-col h-full">
@@ -184,8 +209,8 @@ export function TransportPage() {
                   <span className="text-[11px] text-foreground/60 font-medium">南下</span>
                 </div>
                 <div className="bg-macaron-pink border border-border/50 rounded-sm divide-y divide-border/50">
-                  {MOCK_TRAINS_SOUTH.map((train) => (
-                    <TrainRow key={train.id} train={train} />
+                  {transportData?.trains_south.map((train) => (
+                    <TrainRow key={`${train.id}-${train.destination}`} train={train} />
                   ))}
                 </div>
               </div>
@@ -197,8 +222,8 @@ export function TransportPage() {
                   <span className="text-[11px] text-foreground/60 font-medium">北上</span>
                 </div>
                 <div className="bg-macaron-blue border border-border/50 rounded-sm divide-y divide-border/50">
-                  {MOCK_TRAINS_NORTH.map((train) => (
-                    <TrainRow key={train.id} train={train} />
+                  {transportData?.trains_north.map((train) => (
+                    <TrainRow key={`${train.id}-${train.destination}`} train={train} />
                   ))}
                 </div>
               </div>
@@ -209,11 +234,56 @@ export function TransportPage() {
               <div className="flex items-center gap-2 mb-2.5">
                 <Bus size={16} strokeWidth={1.5} className="text-foreground/60" />
                 <h2 className="text-sm font-medium text-foreground">
-                  公車 &middot; 南科實中站
+                  大台南公車 &middot; 即時動態
+                </h2>
+              </div>
+              
+              {transportData?.buses.map((bus) => (
+                <div key={bus.routeName} className="mb-4 bg-macaron-green border border-border/50 rounded-sm overflow-hidden">
+                  {/* 路線標頭 */}
+                  <div className="px-4 py-2 border-b border-border/30 bg-white/30">
+                    <span className="text-sm font-bold">{bus.routeName}</span>
+                  </div>
+                  
+                  {/* 去回程班次 */}
+                  <div className="divide-y divide-border/30">
+                    {[...bus.outbound, ...bus.inbound].map((trip) => (
+                      <div key={trip.id} className="flex items-center justify-between px-4 py-3">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[9px] px-1 rounded-sm ${trip.id.includes('-0-') ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {trip.id.includes('-0-') ? '去程' : '回程'}
+                            </span>
+                            <span className="text-sm text-foreground">往 {trip.destination}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground/40 font-light line-clamp-1">
+                            {trip.subRouteName}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-medium tabular-nums ${
+                            parseInt(trip.eta) < 3 ? "text-red-500" : "text-foreground/70"
+                          }`}>
+                            {trip.eta === "未發車" || trip.eta === "今日停駛" ? trip.eta : `${trip.eta} 分`}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            {/* STSP Bus section */}
+            <section aria-label="STSP公車資訊">
+              <div className="flex items-center gap-2 mb-2.5">
+                <Bus size={16} strokeWidth={1.5} className="text-foreground/60" />
+                <h2 className="text-sm font-medium text-foreground">
+                  南科巡迴巴士
                 </h2>
               </div>
               <div className="bg-macaron-green border border-border/50 rounded-sm divide-y divide-border/50">
-                {MOCK_BUSES.map((bus) => (
+                {transportData?.STSP_buses.map((bus) => (
                   <div
                     key={bus.route}
                     className="flex items-center justify-between px-4 py-3"
@@ -251,7 +321,7 @@ export function TransportPage() {
                 </h2>
               </div>
               <div className="bg-macaron-yellow border border-border/50 rounded-sm divide-y divide-border/50">
-                {MOCK_YOUBIKE.map((station) => (
+                {transportData?.youbike.map((station) => (
                   <div key={station.name} className="px-4 py-3">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-sm text-foreground">{station.name}</span>

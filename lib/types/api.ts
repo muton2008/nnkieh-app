@@ -1,5 +1,5 @@
 import { WeekSchedule } from './timetable';
-import { TrainInfo, BusInfo, YouBikeStation } from './transport';
+import { TrainInfo, BusInfo, STSPBusInfo, YouBikeStation } from './transport';
 import { SchoolCalendarEvent } from './calendar';
 import { Announcement } from './announcement';
 import { PrivateCalendarEvent, PrivateNoteStore } from './calendar';
@@ -108,6 +108,7 @@ export interface TransportDataResponse {
   trains_south: TrainInfo[];
   trains_north: TrainInfo[];
   buses: BusInfo[];
+  STSP_buses: STSPBusInfo[];
   youbike: YouBikeStation[];
   updated_at: string;
 }
