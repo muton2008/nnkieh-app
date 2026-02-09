@@ -44,6 +44,7 @@ import {
   saveLocalPrivateNotes,
   getLocalUserProfile,
 } from "@/lib/api-client";
+import { get } from "http";
 
 // --- UI Constants ---
 const WEEKDAYS = ["一", "二", "三", "四", "五"] as const;
@@ -332,6 +333,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     // 如果是公開備註且有邀請碼，同步到雲端
     if (inviteCode) {
       try {
+        console.log("Adding note to cloud...")
         const res = await addTimetableNote({
           invite_code: inviteCode,
           day: detailSheet.day,
@@ -509,6 +511,8 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         // Refetch timetable after joining
         const data = await fetchTimetable({ invite_code: code });
         setSchedule(data.schedule);
+        localStorage.setItem("invite_code", code);
+        setInviteCode(code);
       }
     } finally {
       setJoining(false);
@@ -833,7 +837,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground">{note.text}</p>
                         <Badge variant="outline" className="text-[9px] mt-1">
-                          {note.source === "public" ? "公用" : "私人"}
+                          {meta.label}
                         </Badge>
                       </div>
                       
