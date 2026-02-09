@@ -109,12 +109,15 @@ export interface FetchSchoolCalendarResponse {
 export interface FetchAnnouncementsRequest {
   page?: number;
   category?: string;
+  query?: string;
 }
 
 export interface FetchAnnouncementsResponse {
   announcements: Announcement[];
   total: number;
   page: number;
+  totalPages: number;
+  hasMore: boolean;
   updated_at: string;
 }
 

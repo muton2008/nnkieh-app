@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Clock, ExternalLink, FileDown, Paperclip, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -12,7 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonCard } from "./skeleton-block";
 
-import type { Announcement, AnnouncementCategory } from "@/lib/types";
+import type { Announcement } from "@/lib/types/announcement";
+import {
+  CATEGORY_LABELS,
+  CATEGORY_SHORT,
+  CATEGORY_COLORS,
+  CATEGORY_BG_COLORS,
+} from "@/lib/types/announcement";
 import {
   fetchAnnouncements,
   getReadAnnouncementIds,
@@ -20,87 +26,100 @@ import {
 } from "@/lib/api-client";
 
 // --- UI Constants ---
-const CATEGORY_LABELS: Record<AnnouncementCategory, string> = {
-  important: "重要",
-  exam: "考試與考程",
-  learning: "學習歷程/自主學習/社團",
-  activity: "活動與競賽",
-  admin: "行政與校務",
-  admission: "升學與招生",
-  general: "一般公告",
-  teacher: "教師公告/研習",
-};
-
-const CATEGORY_SHORT: Record<AnnouncementCategory, string> = {
-  important: "重要",
-  exam: "考試",
-  learning: "學習",
-  activity: "活動",
-  admin: "行政",
-  admission: "升學",
-  general: "一般",
-  teacher: "教師",
-};
-
-const CATEGORY_COLORS: Record<AnnouncementCategory, string> = {
-  important: "border-l-red-400",
-  exam: "border-l-amber-400",
-  learning: "border-l-emerald-400",
-  activity: "border-l-sky-400",
-  admin: "border-l-violet-400",
-  admission: "border-l-pink-400",
-  general: "border-l-stone-300",
-  teacher: "border-l-teal-400",
-};
-
-const CATEGORY_BG_COLORS: Record<AnnouncementCategory, string> = {
-  important: "bg-red-50 text-red-700 border-red-200",
-  exam: "bg-amber-50 text-amber-700 border-amber-200",
-  learning: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  activity: "bg-sky-50 text-sky-700 border-sky-200",
-  admin: "bg-violet-50 text-violet-700 border-violet-200",
-  admission: "bg-pink-50 text-pink-700 border-pink-200",
-  general: "bg-stone-50 text-stone-600 border-stone-200",
-  teacher: "bg-teal-50 text-teal-700 border-teal-200",
-};
-
-const FILTER_TABS: { id: AnnouncementCategory | "all"; label: string }[] = [
+const FILTER_TABS: { id: number | "all" | "important"; label: string }[] = [
   { id: "all", label: "全部" },
   { id: "important", label: "重要" },
-  { id: "exam", label: "考試與考程" },
-  { id: "learning", label: "學習歷程" },
-  { id: "activity", label: "活動與競賽" },
-  { id: "admin", label: "行政與校務" },
-  { id: "admission", label: "升學與招生" },
-  { id: "general", label: "一般公告" },
-  { id: "teacher", label: "教師公告" },
+  { id: 0, label: "考試與考程" },
+  { id: 1, label: "學習歷程" },
+  { id: 2, label: "活動與競賽" },
+  { id: 3, label: "行政與校務" },
+  { id: 4, label: "升學與招生" },
+  { id: 5, label: "一般公告" },
+  { id: 6, label: "教師公告" },
 ];
+
+const parseAnnouncementContent = (fullContent: string | null) => {
+  if (!fullContent) return { mainText: '', parsedAttachments: [] };
+
+  // 分割標記
+  const sections = fullContent.split('【附件檔案】：');
+  let mainText = sections[0].trim();
+
+  // 解析附件字串
+  const parsedAttachments = sections.slice(1).map((item) => {
+    const [name, rest] = item.split(' (下載位址: ');
+    const url = rest?.replace(')', '').trim();
+    return { name: name.trim(), url: url || '#' };
+  });
+
+  // 清洗主內文，避免重複出現檔名
+  if (parsedAttachments.length > 0) {
+    const firstFileName = parsedAttachments[0].name;
+    const nameIndex = mainText.indexOf(firstFileName);
+    if (nameIndex !== -1) {
+      mainText = mainText.substring(0, nameIndex).trim();
+    }
+  }
+
+  return { mainText, parsedAttachments };
+};
 
 export function NewsPage() {
   const [loading, setLoading] = useState(true);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [readIds, setReadIds] = useState<Set<number>>(new Set());
   const [selectedArticle, setSelectedArticle] = useState<Announcement | null>(null);
-  const [activeFilter, setActiveFilter] = useState<AnnouncementCategory | "all">("all");
+  const [activeFilter, setActiveFilter] = useState<number | "all" | "important">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        const data = await fetchAnnouncements();
+        const data = await fetchAnnouncements(page, {
+          tab: activeFilter === "all" ? undefined : activeFilter.toString(),
+          query: searchQuery.trim() || undefined,
+        });
         if (cancelled) return;
         setAnnouncements(data.announcements);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+        setHasMore(data.hasMore);
+        console.log('[NewsPage] Loaded:', {
+          total: data.total,
+          totalPages: data.totalPages,
+          hasMore: data.hasMore,
+          page: page,
+          announcements: data.announcements.length
+        });
       } catch (e) {
         console.error("[NewsPage] fetch error:", e);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    setReadIds(getReadAnnouncementIds());
+    };
+
+    fetchData();
     return () => { cancelled = true; };
+  }, [page, activeFilter, searchQuery]);
+
+  useEffect(() => {
+    setReadIds(getReadAnnouncementIds());
   }, []);
+
+  // 當篩選條件改變時，重置到第一頁
+  useEffect(() => {
+    if (page !== 1) {
+      setPage(1);
+    }
+  }, [activeFilter, searchQuery]);
 
   const handleOpen = useCallback((article: Announcement) => {
     markAnnouncementAsRead(article.post_id);
@@ -108,30 +127,27 @@ export function NewsPage() {
     setSelectedArticle(article);
   }, []);
 
-  const filteredAnnouncements = useMemo(() => {
-    let list = announcements;
-    if (activeFilter !== "all") {
-      if (activeFilter === "important") {
-        list = list.filter((a) => a.importance === 1);
-      } else {
-        list = list.filter((a) => a.category === activeFilter);
-      }
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      list = list.filter(
-        (a) => a.title.toLowerCase().includes(q) || a.content?.toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [announcements, activeFilter, searchQuery]);
-
   const formattedDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString("zh-TW", {
       year: "numeric",
       month: "long",
       day: "numeric",
     });
+
+  const hasPrevPage = page > 1;
+  const hasNextPage = hasMore;
+
+  const handlePrevPage = () => {
+    if (hasPrevPage) {
+      setPage(page - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (hasNextPage) {
+      setPage(page + 1);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -190,14 +206,17 @@ export function NewsPage() {
       <div className="flex-1 overflow-y-auto px-5 pb-24 space-y-2.5">
         {loading ? (
           [...Array(4)].map((_, i) => <SkeletonCard key={i} />)
-        ) : filteredAnnouncements.length === 0 ? (
+        ) : announcements.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/40">
             <Search size={32} strokeWidth={1} />
             <p className="text-sm font-light mt-3">沒有找到相關公告</p>
           </div>
         ) : (
-          filteredAnnouncements.map((item) => {
+          announcements.map((item) => {
             const isRead = readIds.has(item.post_id);
+            const { mainText, parsedAttachments } = parseAnnouncementContent(item.content);
+            const totalAttachments = (item.attachments?.length || 0) + parsedAttachments.length;
+            
             return (
               <button
                 key={item.post_id}
@@ -226,14 +245,14 @@ export function NewsPage() {
                   {item.title}
                 </h3>
                 <p className="text-xs text-muted-foreground/50 font-light mt-1 line-clamp-2 leading-relaxed">
-                  {item.content}
+                  {mainText}
                 </p>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-[10px] text-muted-foreground/30 font-light">{item.author}</span>
-                  {item.attachments && item.attachments.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground/30 font-light">{item.author || "校方"}</span>
+                  {totalAttachments > 0 && (
                     <span className="flex items-center gap-1 text-[10px] text-sky-500 font-light">
                       <Paperclip size={10} />
-                      {item.attachments.length} 個附件
+                      {totalAttachments} 個附件
                     </span>
                   )}
                 </div>
@@ -243,17 +262,62 @@ export function NewsPage() {
         )}
       </div>
 
+      {/* Pagination */}
+      {!loading && totalPages > 0 && (
+        <div className="px-5 py-4 border-t border-border bg-background mb-20">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handlePrevPage}
+              disabled={!hasPrevPage}
+              className={`px-4 py-2 rounded-sm text-sm border transition-all ${
+                hasPrevPage
+                  ? "bg-card text-foreground border-border hover:bg-foreground hover:text-background"
+                  : "bg-muted text-muted-foreground border-muted cursor-not-allowed"
+              }`}
+            >
+              上一頁
+            </button>
+            <div className="text-sm text-muted-foreground">
+              第 <span className="font-medium text-foreground">{page}</span> / {totalPages} 頁
+              <span className="text-xs ml-2">（共 {total} 則）</span>
+            </div>
+            <button
+              onClick={handleNextPage}
+              disabled={!hasNextPage}
+              className={`px-4 py-2 rounded-sm text-sm border transition-all ${
+                hasNextPage
+                  ? "bg-card text-foreground border-border hover:bg-foreground hover:text-background"
+                  : "bg-muted text-muted-foreground border-muted cursor-not-allowed"
+              }`}
+            >
+              下一頁
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Article detail dialog */}
       <Dialog open={!!selectedArticle} onOpenChange={() => setSelectedArticle(null)}>
-        <DialogContent
-          className={`w-[95vw] max-w-[430px] max-h-[85vh] flex flex-col border-l-4 rounded-sm p-0 gap-0 ${
-            selectedArticle ? CATEGORY_COLORS[selectedArticle.category] : ""
-          }`}
-        >
-          <DialogHeader className="shrink-0 px-5 pt-5 pb-3">
-            <div className="flex items-center gap-2 mb-2">
-              {selectedArticle && (
-                <>
+        {(() => {
+          if (!selectedArticle) return null;
+          
+          // 解析內容，分離主文本和內嵌附件
+          const { mainText, parsedAttachments } = parseAnnouncementContent(selectedArticle.content);
+          
+          // 合併 API 返回的附件和從內容解析的附件
+          const allAttachments = [
+            ...(selectedArticle.attachments || []),
+            ...parsedAttachments
+          ];
+
+          return (
+            <DialogContent
+              className={`w-[95vw] max-w-[430px] max-h-[85vh] flex flex-col border-l-4 rounded-sm p-0 gap-0 ${
+                CATEGORY_COLORS[selectedArticle.category] || ""
+              }`}
+            >
+              <DialogHeader className="shrink-0 px-5 pt-5 pb-3">
+                <div className="flex items-center gap-2 mb-2">
                   <Badge variant="secondary" className={`text-[9px] px-1.5 py-0 h-4 rounded-sm border font-light ${CATEGORY_BG_COLORS[selectedArticle.category]}`}>
                     {CATEGORY_LABELS[selectedArticle.category]}
                   </Badge>
@@ -262,55 +326,64 @@ export function NewsPage() {
                       重要
                     </Badge>
                   )}
-                </>
-              )}
-            </div>
-            <DialogTitle className="font-serif text-lg leading-relaxed text-foreground">
-              {selectedArticle?.title}
-            </DialogTitle>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground/50 font-light mt-1">
-              <span>{selectedArticle?.author}</span>
-              <span>&middot;</span>
-              <span>{selectedArticle && formattedDate(selectedArticle.publish_date)}</span>
-            </div>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 border-t border-dashed border-border">
-            <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-              {selectedArticle?.content || "此公告沒有詳細內容"}
-            </div>
-            {selectedArticle?.attachments && selectedArticle.attachments.length > 0 && (
-              <div className="space-y-2.5">
-                <h4 className="text-xs font-medium flex items-center gap-1.5 text-foreground/70">
-                  <FileDown size={14} /> 附件下載
-                </h4>
-                <div className="space-y-1.5">
-                  {selectedArticle.attachments.map((file, i) => (
-                    <Button key={i} variant="outline" size="sm" asChild className="justify-start h-auto py-2.5 px-3 w-full rounded-sm hover:bg-macaron-blue bg-transparent">
-                      <a href={file.url} target="_blank" rel="noopener noreferrer">
-                        <div className="flex flex-col items-start overflow-hidden">
-                          <span className="text-xs truncate w-full text-foreground">{file.name}</span>
-                          <span className="text-[10px] text-muted-foreground/40 font-light">點擊下載檔案</span>
-                        </div>
-                      </a>
-                    </Button>
-                  ))}
                 </div>
-              </div>
-            )}
-          </div>
+                <DialogTitle className="font-serif text-lg leading-relaxed text-foreground">
+                  {selectedArticle.title}
+                </DialogTitle>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/50 font-light mt-1">
+                  <span>{selectedArticle.author || "校方"}</span>
+                  <span>&middot;</span>
+                  <span>{formattedDate(selectedArticle.publish_date)}</span>
+                </div>
+              </DialogHeader>
 
-          <div className="px-5 py-3 border-t border-border flex items-center justify-between shrink-0">
-            <span className="text-[10px] text-muted-foreground/30 font-light">ID: #{selectedArticle?.post_id}</span>
-            {selectedArticle?.link && (
-              <Button size="sm" variant="outline" asChild className="rounded-sm text-xs bg-transparent">
-                <a href={selectedArticle.link} target="_blank" rel="noopener noreferrer" className="gap-1.5">
-                  <ExternalLink size={12} /> 前往校網原文
-                </a>
-              </Button>
-            )}
-          </div>
-        </DialogContent>
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 border-t border-dashed border-border">
+                {/* 顯示清理後的主文本 */}
+                <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  {mainText || "此公告沒有詳細內容"}
+                </div>
+                
+                {/* 顯示所有附件 */}
+                {allAttachments.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-medium flex items-center gap-2 text-foreground/80">
+                      <FileDown size={16} /> 附件下載
+                    </h4>
+                    <div className="grid gap-2">
+                      {allAttachments.map((file, i) => (
+                        <Button 
+                          key={i} 
+                          variant="outline" 
+                          size="sm" 
+                          asChild 
+                          className="justify-start h-auto py-3 px-4 w-full rounded-sm hover:bg-sky-50 hover:text-sky-600 hover:border-sky-300 transition-colors"
+                        >
+                          <a href={file.url} target="_blank" rel="noopener noreferrer">
+                            <div className="flex flex-col items-start overflow-hidden w-full">
+                              <span className="text-sm truncate w-full font-medium">{file.name}</span>
+                              <span className="text-[10px] text-muted-foreground/60">點擊下載檔案</span>
+                            </div>
+                          </a>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 py-3 border-t border-border flex items-center justify-between shrink-0">
+                <span className="text-[10px] text-muted-foreground/30 font-light">公告編號: #{selectedArticle.post_id}</span>
+                {selectedArticle.link && (
+                  <Button size="sm" variant="outline" asChild className="rounded-sm text-xs bg-transparent">
+                    <a href={selectedArticle.link} target="_blank" rel="noopener noreferrer" className="gap-1.5">
+                      <ExternalLink size={12} /> 前往校網原文
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </DialogContent>
+          );
+        })()}
       </Dialog>
     </div>
   );

@@ -133,14 +133,40 @@ export async function fetchSchoolCalendar(): Promise<FetchSchoolCalendarResponse
   };
 }
 
-export async function fetchAnnouncements(page = 1): Promise<FetchAnnouncementsResponse> {
-  await new Promise(r => setTimeout(r, 500));
-  return {
-    announcements: [
-      { post_id: 1, title: "段考考程公告", content: "考試日期...", publish_date: "2026-02-25", category: "exam", importance: 1, author: "教務處" }
-    ],
-    total: 1,
-    page,
-    updated_at: new Date().toISOString(),
-  };
+// --- 公告 ---
+
+export async function fetchAnnouncements(
+  page = 1,
+  options?: { tab?: string | number; query?: string }
+): Promise<FetchAnnouncementsResponse> {
+  const params = new URLSearchParams({ page: page.toString() });
+  
+  if (options?.tab) {
+    params.append('tab', options.tab.toString());
+  }
+  
+  if (options?.query) {
+    params.append('q', options.query);
+  }
+  
+  return request<FetchAnnouncementsResponse>(`/api/announcements?${params.toString()}`);
+}
+
+/** 取得已讀公告 ID 集合 */
+export function getReadAnnouncementIds(): Set<number> {
+  if (typeof window === "undefined") return new Set();
+  const raw = localStorage.getItem("read_announcements");
+  try {
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** 標記公告為已讀 */
+export function markAnnouncementAsRead(postId: number): void {
+  if (typeof window === "undefined") return;
+  const ids = getReadAnnouncementIds();
+  ids.add(postId);
+  localStorage.setItem("read_announcements", JSON.stringify([...ids]));
 }
