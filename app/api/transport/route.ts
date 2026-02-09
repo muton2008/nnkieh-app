@@ -71,8 +71,6 @@ async function getBus(): Promise<BusInfo[]> {
     const sFilter = TARGET_STOPS.map(s => `contains(StopName/Zh_tw, '${s}')`).join(' or ');
     const filter = `(${rFilter}) and (${sFilter})`;
     const select = "RouteID,SubRouteID,Direction,StopID,RouteName,StopName,EstimateTime,StopStatus,SubRouteName";
-    // console.log("Bus API Filter:", filter);
-    // console.log("Bus API Select:", select);
 
     const url = `https://tdx.transportdata.tw/api/basic/v3/Bus/EstimatedTimeOfArrival/City/Tainan?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select)}&$format=JSON`;
 
@@ -88,47 +86,47 @@ async function getBus(): Promise<BusInfo[]> {
       
       let etaText = "";
       
-      // 1. 優先處理「絕對停駛」的狀態
-      if (status === 4) {
-        etaText = "今日停駛";
-      } else if (status === 3) {
-        etaText = "末班已過";
-      } else if (status === 2) {
-        etaText = "交管不停";
+      // --- 修正後的邏輯：秒數優先，解決「進站中」與「未發車」衝突 ---
+      
+      // 1. 如果有秒數且大於 0，優先顯示分鐘 (不管 status 是多少)
+      if (time !== undefined && time !== null && time > 60) {
+        etaText = `${Math.floor(time / 60)}`;
       } 
-      // 2. 狀態不是停駛時，才看秒數
+      // 2. 如果秒數在 0~60 秒之間
       else if (time !== undefined && time !== null && time >= 0) {
-        // 如果秒數大於 0，顯示分鐘；如果等於 0，且狀態不是停駛，顯示進站中
-        const min = Math.floor(time / 60);
-        if (min > 0) {
-          etaText = `${min}`;
+        // 只有在狀態不是「尚未發車(1)」的情況下，0秒才顯示進站中
+        // 這樣可以過濾掉你提到的：綠2明明沒開(status 1)卻因為秒數0顯示進站
+        if (status === 1) {
+          etaText = "未發車";
         } else {
-          // 秒數為 0 且狀態是正常(0)或待發(1)，顯示進站中
           etaText = "進站中";
         }
-      } 
-      // 3. 最後的保險
+      }
+      // 3. 如果完全沒有秒數資訊，才根據 StopStatus 顯示文字
       else {
-        etaText = status === 1 ? "未發車" : "查詢中";
+        if (status === 1) etaText = "未發車";
+        else if (status === 2) etaText = "交管不停";
+        else if (status === 3) etaText = "末班已過";
+        else if (status === 4) etaText = "今日停駛";
+        else etaText = "查詢中";
       }
 
-      // --- 目的地保險：解決 SubRouteName 為空的問題 ---
+      // --- 目的地處理 (保持彈性，不寫死特定路線) ---
       let dest = "未知";
-      const subName = item.SubRouteName?.Zh_tw; // 使用 Optional Chaining
+      const subName = item.SubRouteName?.Zh_tw || "";
       
-      if (subName && subName.includes('→')) {
-        dest = subName.split('→').pop() || "未知";
+      if (subName.includes('→')) {
+        dest = subName.split('→').pop()?.trim() || "未知";
       } else if (subName) {
-        dest = subName;
+        dest = subName.trim();
       } else {
-        // 如果 SubRouteName 是空的 (像橘14)，直接顯示路線名稱
         dest = name; 
       }
 
       const dirInfo: DirectionInfo = {
         id: `${item.RouteID}-${item.SubRouteID}-${item.Direction}-${item.StopID}`,
         subRouteName: subName || name,
-        destination: dest.trim(),
+        destination: dest,
         eta: etaText,
         status: status
       };
@@ -141,12 +139,13 @@ async function getBus(): Promise<BusInfo[]> {
       else current.inbound.push(dirInfo);
     });
 
-    // 排序與回傳 (與之前相同)
+    // 排序與回傳
     return Array.from(routeMap.values()).map(route => {
       const parseEta = (s: string) => {
         if (s === "進站中") return -1;
         const n = parseInt(s);
-        return isNaN(n) ? 999 : n;
+        if (isNaN(n)) return 999;
+        return n;
       };
       route.outbound.sort((a, b) => parseEta(a.eta) - parseEta(b.eta));
       route.inbound.sort((a, b) => parseEta(a.eta) - parseEta(b.eta));
