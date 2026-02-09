@@ -71,6 +71,8 @@ async function getBus(): Promise<BusInfo[]> {
     const sFilter = TARGET_STOPS.map(s => `contains(StopName/Zh_tw, '${s}')`).join(' or ');
     const filter = `(${rFilter}) and (${sFilter})`;
     const select = "RouteID,SubRouteID,Direction,StopID,RouteName,StopName,EstimateTime,StopStatus,SubRouteName";
+    // console.log("Bus API Filter:", filter);
+    // console.log("Bus API Select:", select);
 
     const url = `https://tdx.transportdata.tw/api/basic/v3/Bus/EstimatedTimeOfArrival/City/Tainan?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select)}&$format=JSON`;
 
@@ -85,8 +87,6 @@ async function getBus(): Promise<BusInfo[]> {
       const time = item.EstimateTime;
       
       let etaText = "";
-
-      // --- 核心修正：嚴格狀態優先權 ---
       
       // 1. 優先處理「絕對停駛」的狀態
       if (status === 4) {
@@ -160,54 +160,86 @@ async function getBus(): Promise<BusInfo[]> {
 }
 
 
-async function getSTSPBusData(): Promise<STSPBusInfo[]> {
+async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
   try {
-    const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getBusDynamicInfoArrayByLang?$token=FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+    const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
+    
+    // 你要查詢的兩個目標站點
+    const TARGET_STOPS = ["南科實中", "民生水塔"];
+    const AUTH_TOKEN = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF" //public token
+    
+    // 指定要保留的路線關鍵字
+    const WANTED_ROUTES = ["紅線", "藍線", "橘線", "實中線", "LM線"];
 
-    const TARGET_ROUTES = [
-      { id: "1916", name: "橘線" },
-      { id: "1917", name: "紅線" },
-      { id: "1915", name: "藍線" },
-      { id: "2112", name: "實中LM線" }
-    ];
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // 因為 STSP 的 API 沒有正確設定 SSL，暫時先這樣繞過（不建議在正式環境使用）
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; 
 
-    const INTERESTED_STOPS = ["T5 南科實中", "T3 民生水塔"];
+    // 初始化回傳容器
+    const finalData: Record<string, STSPBusInfo[]> = {};
 
-    const fetchPromises = TARGET_ROUTES.map(async (target) => {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ RouteID: target.id, Language: "ZH" }), // 參數通常也建議大寫
-        next: { revalidate: 60 }
-      });
+    const fetchPromises = TARGET_STOPS.map(async (stopName) => {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': AUTH_TOKEN,
+            'Origin': 'https://atis.stsp.gov.tw',
+            'Referer': 'https://atis.stsp.gov.tw/businfo',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+          },
+          body: JSON.stringify({ stopName: stopName, language: "ZH" }),
+          next: { revalidate: 60 }
+        });
 
-      if (!res.ok) return [];
-      const json = await res.json();
+        if (!res.ok) {
+          console.error(`STSP API Error for ${stopName}:`, res);
+          finalData[stopName] = [];
+          return [];
+        }
 
-      const goStops = json.GoInfo?.Stops || [];
-      const backStops = json.BackInfo?.Stops || [];
-      const allStops = [...goStops, ...backStops];
+        const json = await res.json();
+        //console.log(`Raw STSP Data for ${stopName}:`, json);
+        const allRoutes = json.routes || [];
 
-      return allStops
-        .filter((s: any) => 
-          s.StopName && 
-          INTERESTED_STOPS.includes(s.StopName) && 
-          s.EstimateTimeType === 0 // 0 代表有預估分鐘數
-        )
-        .map((s: any): STSPBusInfo => ({
-          route: target.name,
-          destination: s.StopName,
-          eta: s.EstimateTime  + " 分鐘",
-          status: s.EstimateTimeType === 0 ? "行駛中" : "無班次"
-        }));
+        const filtered = allRoutes
+          .filter((r: any) => 
+            // 1. 必須是我們要的路線
+            WANTED_ROUTES.some(name => r.routeName.includes(name)) &&
+            // 2. 必須有時間資訊且不是「尚未發車」
+            r.estimateTime && r.estimateTime !== "尚未發車"
+          )
+          .map((r: any) => ({
+            route: `${r.routeName} (${r.subRouteName})`,
+            destination: r.destination,
+            eta: r.estimateTime.includes("分") ? r.estimateTime : r.estimateTime,
+            // 排序權重：行駛中(0)優於預排(6)
+            _sortWeight: r.estimateTime.includes("分") 
+              ? parseInt(r.estimateTime) 
+              : parseInt(r.estimateTime.replace(":", "")) + 1000
+          }))
+          // 依抵達時間排序
+          .sort((a: any, b: any) => a._sortWeight - b._sortWeight)
+          // 每個站點僅取前 3 班
+          .slice(0, 3)
+          // 移除內部的排序權重欄位
+          .map(({ _sortWeight, ...info }: any) => info as STSPBusInfo);
+
+        finalData[stopName] = filtered;
+
+      } catch (e) {
+        console.error(`Fetch error for ${stopName}:`, e);
+        finalData[stopName] = [];
+      }
     });
 
-    const results = await Promise.all(fetchPromises);
-    return results.flat();
+    await Promise.all(fetchPromises);
+    //console.log("STSP Bus Data:", finalData);
+    return finalData;
+
   } catch (error) {
-    console.error("STSP Bus Error:", error);
-    return [];
+    console.error("STSP Bus Total Error:", error);
+    return {};
   }
 }
 
@@ -264,7 +296,7 @@ export async function GET() {
         trains_south: train.south,
         trains_north: train.north,
         buses: bus,
-        STSP_buses: stspBus,
+        STSP_buses : stspBus,
         youbike: youbike,
         updated_at: new Date().toISOString()
     }

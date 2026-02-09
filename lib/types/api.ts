@@ -126,7 +126,7 @@ export interface TransportDataResponse {
   trains_south: TrainInfo[];
   trains_north: TrainInfo[];
   buses: BusInfo[];
-  STSP_buses: STSPBusInfo[];
+  STSP_buses: Record<"南科實中" | "民生水塔", STSPBusInfo[]>;
   youbike: YouBikeStation[];
   updated_at: string;
 }
