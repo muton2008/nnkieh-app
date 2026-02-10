@@ -86,16 +86,13 @@ async function getBus(): Promise<BusInfo[]> {
       
       let etaText = "";
       
-      // --- 修正後的邏輯：秒數優先，解決「進站中」與「未發車」衝突 ---
       
       // 1. 如果有秒數且大於 0，優先顯示分鐘 (不管 status 是多少)
       if (time !== undefined && time !== null && time > 60) {
         etaText = `${Math.floor(time / 60)}`;
       } 
       // 2. 如果秒數在 0~60 秒之間
-      else if (time !== undefined && time !== null && time >= 0) {
-        // 只有在狀態不是「尚未發車(1)」的情況下，0秒才顯示進站中
-        // 這樣可以過濾掉你提到的：綠2明明沒開(status 1)卻因為秒數0顯示進站
+      else if (time !== undefined && time !== null && time >= 0 && ( status === 1 || status === 0)) {
         if (status === 1) {
           etaText = "未發車";
         } else {
