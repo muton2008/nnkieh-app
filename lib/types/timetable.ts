@@ -1,4 +1,4 @@
-export type NoteCategory = "exam" | "swap" | "homework" | "private";
+export type NoteCategory = "exam" | "swap" | "homework" | "other" | "private";
 
 export interface NoteCategoryMeta {
   id: NoteCategory;

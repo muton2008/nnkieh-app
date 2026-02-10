@@ -66,6 +66,7 @@ const NOTE_CATEGORIES: NoteCategoryMeta[] = [
   { id: "exam", label: "考試", color: "text-red-600", bg: "bg-red-50 border-red-200 text-red-700" },
   { id: "swap", label: "調課", color: "text-amber-600", bg: "bg-amber-50 border-amber-200 text-amber-700" },
   { id: "homework", label: "作業截止", color: "text-blue-600", bg: "bg-blue-50 border-blue-200 text-blue-700" },
+  {id: "other", label: "其他", color: "text-green-600", bg: "bg-green-50 border-green-200 text-green-700" },
   { id: "private", label: "私人", color: "text-violet-600", bg: "bg-violet-50 border-violet-200 text-violet-700" },
 ];
 
@@ -73,6 +74,7 @@ const NOTE_ICONS: Record<NoteCategory, typeof FileText> = {
   exam: ClipboardList,
   swap: RefreshCw,
   homework: FileText,
+  other: Pencil,
   private: Lock,
 };
 
