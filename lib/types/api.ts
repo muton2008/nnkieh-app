@@ -3,6 +3,7 @@ import { TrainInfo, BusInfo, STSPBusInfo, YouBikeStation } from './transport';
 import { SchoolCalendarEvent } from './calendar';
 import { Announcement } from './announcement';
 import { PrivateCalendarEvent, PrivateNoteStore } from './calendar';
+import { UserProfile } from './user';
 
 // ============================================================
 // 1. 班級與課表 (Class & Timetable)
@@ -18,6 +19,17 @@ export interface CellNote {
   content: string;
   is_public: boolean; // 調課/作業/考試為 true (存 DB)，私人為 false (存 Local)
   created_at: string;
+}
+
+/** 同步使用者個人資料 */
+export interface SyncUserProfileRequest {
+  device_id: string;
+  profile: UserProfile;
+}
+
+export interface SyncUserProfileResponse {
+  success: boolean;
+  message?: string;
 }
 
 /** 加入班級 */

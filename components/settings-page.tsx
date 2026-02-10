@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Check, Copy, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-import type { UserProfile } from "@/lib/types";
-import { DEFAULT_USER_PROFILE } from "@/lib/types";
+import { DEFAULT_USER_PROFILE, UserProfile } from "@/lib/types/user";
 import {
   getLocalUserProfile,
   saveLocalUserProfile,
@@ -162,7 +161,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         <section className="bg-card border border-border rounded-sm p-4">
           <h2 className="text-xs font-medium text-foreground mb-2">關於</h2>
           <div className="space-y-1.5 text-[11px] text-muted-foreground/60 font-light">
-            <p>校園生活助手 v1.0</p>
+            <p>南科校園行動應用 v0.0.1 alpha</p>
             <p>南科實中 NNKIEH</p>
             <div className="border-t border-dashed border-border mt-3 pt-3">
               <p className="text-[10px] text-muted-foreground/40">

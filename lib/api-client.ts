@@ -13,7 +13,9 @@ import {
   FetchAnnouncementsResponse,
   TransportDataResponse,
   AddNoteRequest,
-  AddNoteResponse
+  AddNoteResponse,
+  SyncUserProfileRequest,
+  SyncUserProfileResponse
 } from "@/lib/types/api";
 
 
@@ -60,6 +62,18 @@ export function getLocalUserProfile(): UserProfile | null {
 export function saveLocalUserProfile(profile: UserProfile): void {
   if (typeof window === "undefined") return;
   localStorage.setItem("user_profile", JSON.stringify(profile));
+}
+
+/** 同步使用者個人資料至雲端 */
+export async function syncUserProfile(profile: UserProfile): Promise<SyncUserProfileResponse> {
+  const deviceId = profile.device_id || (typeof window !== "undefined" ? localStorage.getItem("device_id") : null) || "";
+  return request<SyncUserProfileResponse>("/api/user/profile", {
+    method: "POST",
+    body: JSON.stringify({
+      device_id: deviceId,
+      profile: profile
+    } as SyncUserProfileRequest),
+  });
 }
 
 export function getLocalPrivateNotes(): PrivateNoteStore {

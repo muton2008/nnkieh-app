@@ -8,6 +8,7 @@ import { TimetablePage } from "@/components/timetable-page";
 import { TransportPage } from "@/components/transport-page";
 import { CalendarPage } from "@/components/calendar-page";
 import { NewsPage } from "@/components/news-page";
+import { SettingsPage } from "@/components/settings-page";
 
 // UUID generation function
 function generateUUID(): string {
@@ -49,6 +50,8 @@ export default function Page() {
         return <CalendarPage deviceId={deviceId} />;
       case "news":
         return <NewsPage />;
+      case "settings":
+        return <SettingsPage deviceId={deviceId} />;
       default:
         return <HomePage onNavigate={setActiveTab} deviceId={deviceId} />;
     }
