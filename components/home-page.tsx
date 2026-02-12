@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import type { TabId } from "@/lib/types/common";
+import { getLocalUserProfile, saveLocalUserProfile, syncUserProfile } from "@/lib/api-client";
 
 import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
 
@@ -140,6 +141,23 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
           setUpcomingEvents(cData.events.slice(0, 3));
         }
 
+        // 註冊users_profile
+        const profile = getLocalUserProfile();
+        if (!profile || !profile.device_id) {
+          const res = await syncUserProfile({
+            device_id: deviceId,
+            division:"no disturb",
+            notify_all: false,
+          });
+          if (res.success && res.updated_at) {
+            saveLocalUserProfile({
+              device_id: deviceId,
+              division:"no disturb",
+              notify_all: false,
+              updated_at: res.updated_at,
+            });
+          }
+        }
       } catch (e) {
         console.error("[HomePage] load error:", e);
       } finally {
