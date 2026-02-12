@@ -264,7 +264,7 @@ export function TransportPage() {
                           <span className={`text-sm font-medium tabular-nums ${
                             parseInt(trip.eta) < 3 ? "text-red-500" : "text-foreground/70"
                           }`}>
-                            {trip.eta === "未發車" || trip.eta === "今日停駛" ? trip.eta : `${trip.eta} 分`}
+                            {trip.eta === "未發車" || trip.eta === "今日停駛" ? trip.eta : `${trip.eta}`}
                           </span>
                         </div>
                       </div>

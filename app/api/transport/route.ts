@@ -89,7 +89,7 @@ async function getBus(): Promise<BusInfo[]> {
       
       // 1. 如果有秒數且大於 0，優先顯示分鐘 (不管 status 是多少)
       if (time !== undefined && time !== null && time > 60) {
-        etaText = `${Math.floor(time / 60)}`;
+        etaText = `${Math.floor(time / 60)} 分`;
       } 
       // 2. 如果秒數在 0~60 秒之間
       else if (time !== undefined && time !== null && time >= 0 && ( status === 1 || status === 0)) {
@@ -105,7 +105,10 @@ async function getBus(): Promise<BusInfo[]> {
         else if (status === 2) etaText = "交管不停";
         else if (status === 3) etaText = "末班已過";
         else if (status === 4) etaText = "今日停駛";
-        else etaText = "查詢中";
+        else {
+          console.warn("未知的公車狀態:", status, "秒數:", time);
+          etaText = "查詢中";
+        }
       }
 
       // --- 目的地處理 (保持彈性，不寫死特定路線) ---
