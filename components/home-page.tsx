@@ -11,10 +11,8 @@ import {
 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import type { TabId } from "@/lib/types/common";
-import { UserProfile } from "@/lib/types/user";
 
-import { DEFAULT_USER_PROFILE } from "@/lib/types/user";
-import { fetchTimetable, fetchSchoolCalendar, getLocalUserProfile } from "@/lib/api-client";
+import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
 
 // --- Types ---
 interface TodayScheduleItem {
@@ -73,7 +71,6 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
   const [message] = useState(getRandomMessage);
   const [todaySchedule, setTodaySchedule] = useState<TodayScheduleItem[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
-  const [profile, setProfile] = useState<UserProfile>(DEFAULT_USER_PROFILE);
 
   // 輔助函式：將 API 回傳的原始 schedule 轉換成今日首頁顯示格式
   const processScheduleData = useCallback((scheduleObj: any) => {
@@ -104,12 +101,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
     const loadData = async () => {
       try {
-        // 1. 載入 Profile
-        const stored = getLocalUserProfile();
-        if (stored && !cancelled) setProfile(stored);
-
-
-        // 2. 先獲取 Local 緩存並立即顯示
+        // 1. 先獲取 Local 緩存並立即顯示
         const cacheRaw = localStorage.getItem("cache_timetable");
         let initialSchedule: TodayScheduleItem[] = [];
         if (cacheRaw) {
@@ -182,9 +174,6 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
           <p className="text-sm text-muted-foreground mt-1 font-light">
             {getTodayString()} &middot; {message}
           </p>
-          {profile?.class_name && (
-            <p className="text-[10px] text-muted-foreground/40 font-light mt-0.5">{profile.class_name}</p>
-          )}
         </div>
         <button onClick={() => onNavigate("settings")} className="p-2 text-muted-foreground/50 hover:text-foreground">
           <Settings size={18} strokeWidth={1.5} />
@@ -258,7 +247,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
       <footer className="pt-2 border-t border-dashed border-border">
         <p className="text-[10px] text-muted-foreground/60 text-center font-light tracking-wider">
-          {profile?.school_name || "南科實中"} NNKIEH
+          南科實中 NNKIEH
         </p>
       </footer>
     </div>

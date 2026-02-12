@@ -1,3 +1,5 @@
+import { SchoolDivision } from "./user";
+
 // --- 公告 ---
 export interface Announcement {
   id: number;
@@ -5,6 +7,7 @@ export interface Announcement {
   content: string | null;
   category: number;
   importance: number;
+  division: SchoolDivision[];
   publish_date: string;
   link: string | null;
   created_at: string;

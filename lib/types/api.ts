@@ -21,17 +21,6 @@ export interface CellNote {
   created_at: string;
 }
 
-/** 同步使用者個人資料 */
-export interface SyncUserProfileRequest {
-  device_id: string;
-  profile: UserProfile;
-}
-
-export interface SyncUserProfileResponse {
-  success: boolean;
-  message?: string;
-}
-
 /** 加入班級 */
 export interface JoinClassRequest {
   invite_code: string;
@@ -155,4 +144,28 @@ export interface LocalStorageData {
   private_notes: PrivateNoteStore;     // 私人備註 (含 id, content, type)
   private_events: PrivateCalendarEvent[]; // 私人行事曆 (自動清理邏輯在前端實作)
   last_visited_invite_code: string;
+}
+
+// ============================================================
+// 6. 使用者個人資料 (User Profile) - 同步至後端
+// ============================================================
+
+export interface GetUserProfileRequest {
+  device_id: string;
+}
+
+export interface GetUserProfileResponse {
+  success: boolean;
+  profile: UserProfile;
+  message?: string;
+}
+
+export interface SyncUserProfileRequest extends UserProfile {
+  app_version: string;
+}
+
+export interface SyncUserProfileResponse {
+  success: boolean;
+  updated_at?: string;
+  message?: string;
 }

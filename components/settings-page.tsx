@@ -1,51 +1,95 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Check, Copy, Info } from "lucide-react";
+import { Check, RefreshCw, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-import { DEFAULT_USER_PROFILE, UserProfile } from "@/lib/types/user";
+import {
+  DEFAULT_USER_PROFILE,
+  UserProfile,
+  SchoolDivision,
+} from "@/lib/types/user";
 import {
   getLocalUserProfile,
   saveLocalUserProfile,
   syncUserProfile,
+  fetchUserProfile,
 } from "@/lib/api-client";
+import { APP_VERSION } from "@/lib/version";
+
+const DIVISION_OPTIONS: { value: SchoolDivision; label: string; desc: string }[] = [
+  { value: "no disturb", label: "都不", desc: "不接收任何重要通知" },
+  { value: "junior", label: "國中部", desc: "僅接收國中部重要通知" },
+  { value: "high", label: "高中部", desc: "僅接收高中部重要通知" },
+  { value: "all", label: "全部", desc: "接收所有重要通知" },
+];
 
 interface SettingsPageProps {
   deviceId: string;
 }
 
 export function SettingsPage({ deviceId }: SettingsPageProps) {
-  const [profile, setProfile] = useState<UserProfile>({ ...DEFAULT_USER_PROFILE, device_id: deviceId });
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [copiedId, setCopiedId] = useState(false);
+  const [profile, setProfile] = useState<UserProfile>({
+    ...DEFAULT_USER_PROFILE,
+    device_id: deviceId,
+  });
+  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [loading, setLoading] = useState(true);
 
+  // 進入頁面：先讀 Local，再從後端 fetch 最新
   useEffect(() => {
-    const stored = getLocalUserProfile();
-    if (stored) {
-      setProfile({ ...stored, device_id: deviceId });
-    } else {
-      setProfile({ ...DEFAULT_USER_PROFILE, device_id: deviceId });
-    }
+    let cancelled = false;
+
+    const init = async () => {
+      // 1. 讀取 LocalStorage
+      const stored = getLocalUserProfile();
+      const local = stored
+        ? { ...stored, device_id: deviceId }
+        : { ...DEFAULT_USER_PROFILE, device_id: deviceId };
+      if (!cancelled) {
+        setProfile(local);
+        setLoading(false);
+      }
+
+      // 2. 若有 device_id，從後端取得最新 profile
+      if (deviceId) {
+        try {
+          const res = await fetchUserProfile(deviceId);
+          if (!cancelled && res.success && res.profile) {
+            const merged = { ...res.profile, device_id: deviceId };
+            setProfile(merged);
+            saveLocalUserProfile(merged);
+          }
+        } catch (e) {
+          console.error("[SettingsPage] fetch remote profile error:", e);
+        }
+      }
+    };
+
+    init();
+    return () => { cancelled = true; };
   }, [deviceId]);
 
-  const handleSave = useCallback(async () => {
-    setSaveStatus("saving");
-    saveLocalUserProfile(profile);
+  const handleSync = useCallback(async () => {
+    setSyncStatus("syncing");
     try {
-      await syncUserProfile(profile);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      saveLocalUserProfile(profile);
+      const res = await syncUserProfile(profile);
+      if (res.success) {
+        if (res.updated_at) {
+          const updated = { ...profile, updated_at: res.updated_at };
+          setProfile(updated);
+          saveLocalUserProfile(updated);
+        }
+        setSyncStatus("synced");
+      } else {
+        setSyncStatus("error");
+      }
     } catch {
-      setSaveStatus("idle");
+      setSyncStatus("error");
     }
+    setTimeout(() => setSyncStatus("idle"), 2000);
   }, [profile]);
-
-  const handleCopyDeviceId = useCallback(() => {
-    navigator.clipboard.writeText(deviceId);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
-  }, [deviceId]);
 
   const updateField = useCallback(
     <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => {
@@ -54,144 +98,178 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     []
   );
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">載入中...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       <header className="px-5 pt-12 pb-4">
         <h1 className="font-serif text-xl font-semibold text-foreground">設定</h1>
-        <p className="text-xs text-muted-foreground font-light mt-0.5">個人資料與偏好</p>
+        <p className="text-xs text-muted-foreground font-light mt-0.5">通知偏好與資料同步</p>
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 pb-24 space-y-5">
-        {/* Device ID section */}
+        {/* 部別選擇 */}
         <section className="bg-card border border-border rounded-sm p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Info size={14} className="text-muted-foreground/60" />
-            <h2 className="text-xs font-medium text-foreground">裝置識別碼</h2>
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xs font-medium text-foreground">部別選擇</h2>
+            {profile.notify_all && (
+              <span className="text-[10px] text-amber-600 font-light">已鎖定為全部</span>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-[11px] text-muted-foreground/70 font-mono bg-muted/50 px-2.5 py-1.5 rounded-sm break-all">
-              {deviceId}
-            </code>
+          <p className="text-[10px] text-muted-foreground/50 font-light mb-3">
+            選擇要收取哪個部別的重要通知
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {DIVISION_OPTIONS.map((opt) => {
+              const isSelected = profile.division === opt.value;
+              const isDisabled = profile.notify_all;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => !isDisabled && updateField("division", opt.value)}
+                  disabled={isDisabled}
+                  className={`relative flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-sm border transition-all text-left ${
+                    isDisabled
+                      ? "border-border/50 bg-muted/30 cursor-not-allowed opacity-50"
+                      : isSelected
+                      ? "border-foreground/40 bg-foreground/5"
+                      : "border-border hover:border-foreground/20"
+                  }`}
+                >
+                  <span className={`text-sm ${isSelected ? "text-foreground font-medium" : "text-foreground/70"}`}>
+                    {opt.label}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/50 font-light leading-tight">
+                    {opt.desc}
+                  </span>
+                  {isSelected && (
+                    <span className="absolute top-2 right-2">
+                      <Check size={12} strokeWidth={2.5} className="text-foreground/60" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 通知開關 */}
+        <section className="bg-card border border-border rounded-sm p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              {profile.notify_all ? (
+                <Bell size={16} className="text-foreground/60" />
+              ) : (
+                <BellOff size={16} className="text-muted-foreground/40" />
+              )}
+              <div>
+                <h2 className="text-xs font-medium text-foreground">接收所有通知</h2>
+                <p className="text-[10px] text-muted-foreground/50 font-light mt-0.5">
+                  {profile.notify_all ? "將收到所有公告通知，部別選擇已鎖定" : "僅接收重要公告通知"}
+                </p>
+              </div>
+            </div>
             <button
-              onClick={handleCopyDeviceId}
-              className="p-1.5 border border-border rounded-sm text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-              aria-label="複製裝置 ID"
+              role="switch"
+              aria-checked={profile.notify_all}
+              onClick={() => {
+                const newNotifyAll = !profile.notify_all;
+                setProfile((prev) => ({
+                  ...prev,
+                  notify_all: newNotifyAll,
+                  division: newNotifyAll ? "all" : prev.division,
+                }));
+              }}
+              className={`relative w-10 h-[22px] rounded-full transition-colors duration-200 ${
+                profile.notify_all ? "bg-foreground/80" : "bg-muted-foreground/20"
+              }`}
             >
-              {copiedId ? <Check size={13} /> : <Copy size={13} />}
+              <span
+                className={`absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-background shadow-sm transition-transform duration-200 ${
+                  profile.notify_all ? "translate-x-[18px]" : "translate-x-0"
+                }`}
+              />
             </button>
           </div>
-          <p className="text-[10px] text-muted-foreground/40 font-light mt-2">
-            此 ID 用於識別你的裝置，與課表和設定資料綁定。
-          </p>
         </section>
 
-        {/* Profile form */}
-        <section className="bg-card border border-border rounded-sm p-4 space-y-4">
-          <h2 className="text-xs font-medium text-foreground">個人設定</h2>
-
-          <div>
-            <label className="text-[11px] text-muted-foreground font-light block mb-1">班級名稱</label>
-            <input
-              type="text"
-              value={profile.class_name}
-              onChange={(e) => updateField("class_name", e.target.value)}
-              placeholder="例如：高二甲班"
-              className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <p className="text-[10px] text-muted-foreground/40 font-light mt-1">
-              將顯示在課表頁面標題下方。
-            </p>
-          </div>
-
-          <div>
-            <label className="text-[11px] text-muted-foreground font-light block mb-1">預設教室</label>
-            <input
-              type="text"
-              value={profile.default_room}
-              onChange={(e) => updateField("default_room", e.target.value)}
-              placeholder="例如：301"
-              className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-            <p className="text-[10px] text-muted-foreground/40 font-light mt-1">
-              編輯課表時，新增課程會預設此教室編號。
-            </p>
-          </div>
-
-          <div>
-            <label className="text-[11px] text-muted-foreground font-light block mb-1">學校名稱</label>
-            <input
-              type="text"
-              value={profile.school_name}
-              onChange={(e) => updateField("school_name", e.target.value)}
-              placeholder="例如：南科實中"
-              className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-
-          <div>
-            <label className="text-[11px] text-muted-foreground font-light block mb-1">學年學期</label>
-            <input
-              type="text"
-              value={profile.semester_label}
-              onChange={(e) => updateField("semester_label", e.target.value)}
-              placeholder="例如：113學年度第二學期"
-              className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
-            />
-          </div>
-        </section>
-
-        {/* Save button */}
+        {/* 同步按鈕 */}
         <Button
-          onClick={handleSave}
+          onClick={handleSync}
           className="w-full rounded-sm"
-          disabled={saveStatus === "saving"}
+          disabled={syncStatus === "syncing"}
         >
-          {saveStatus === "saving" ? (
-            "儲存中..."
-          ) : saveStatus === "saved" ? (
+          {syncStatus === "syncing" ? (
             <span className="flex items-center gap-1.5">
-              <Check size={14} /> 已儲存
+              <RefreshCw size={14} className="animate-spin" /> 同步中...
             </span>
+          ) : syncStatus === "synced" ? (
+            <span className="flex items-center gap-1.5">
+              <Check size={14} /> 已同步
+            </span>
+          ) : syncStatus === "error" ? (
+            "同步失敗，請再試一次"
           ) : (
-            "儲存設定"
+            <span className="flex items-center gap-1.5">
+              <RefreshCw size={14} /> 同步設定
+            </span>
           )}
         </Button>
 
-        {/* About section */}
+        {/* 資料管理 */}
         <section className="bg-card border border-border rounded-sm p-4">
-          <h2 className="text-xs font-medium text-foreground mb-2">關於</h2>
-          <div className="space-y-1.5 text-[11px] text-muted-foreground/60 font-light">
-            <p>南科校園行動應用 v0.0.1 alpha</p>
-            <p>南科實中 NNKIEH</p>
-            <div className="border-t border-dashed border-border mt-3 pt-3">
-              <p className="text-[10px] text-muted-foreground/40">
-                全校行事曆由管理員統一維護，如需修改請聯繫教務處。
-                <br />
-                私人行事曆與課表備註僅儲存於你的裝置，同時會同步至雲端備份。
-              </p>
+          <h2 className="text-xs font-medium text-foreground mb-3">資料管理</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full rounded-sm text-xs bg-transparent"
+            onClick={() => {
+              if (confirm("確定要清除所有本機資料嗎？此操作無法復原。")) {
+                localStorage.clear();
+                window.location.reload();
+              }
+            }}
+          >
+            清除所有本機資料
+          </Button>
+        </section>
+
+        {/* 診斷資訊 */}
+        <section className="bg-card border border-border rounded-sm p-4">
+          <h2 className="text-xs font-medium text-foreground mb-2">診斷資訊</h2>
+          <div className="space-y-1.5 text-[11px] text-muted-foreground/60 font-light font-mono">
+            <div className="flex justify-between">
+              <span>App 版本</span>
+              <span className="text-muted-foreground/80">v{APP_VERSION}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Device ID</span>
+              <span className="text-muted-foreground/80 text-[10px] break-all text-right max-w-[60%]">
+                {deviceId}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>最後同步</span>
+              <span className="text-muted-foreground/80">
+                {profile.updated_at
+                  ? new Date(profile.updated_at).toLocaleString("zh-TW")
+                  : "尚未同步"}
+              </span>
             </div>
           </div>
         </section>
 
-        {/* Data management */}
-        <section className="bg-card border border-border rounded-sm p-4">
-          <h2 className="text-xs font-medium text-foreground mb-3">資料管理</h2>
-          <div className="space-y-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full rounded-sm text-xs bg-transparent"
-              onClick={() => {
-                if (confirm("確定要清除所有本機資料嗎？此操作無法復原。")) {
-                  localStorage.clear();
-                  window.location.reload();
-                }
-              }}
-            >
-              清除所有本機資料
-            </Button>
-          </div>
-        </section>
+        <footer className="pt-2 border-t border-dashed border-border">
+          <p className="text-[10px] text-muted-foreground/40 text-center font-light tracking-wider">
+            南科實中 NNKIEH
+          </p>
+        </footer>
       </div>
     </div>
   );

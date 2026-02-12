@@ -15,8 +15,11 @@ import {
   AddNoteRequest,
   AddNoteResponse,
   SyncUserProfileRequest,
-  SyncUserProfileResponse
+  SyncUserProfileResponse,
+  GetUserProfileRequest,
+  GetUserProfileResponse
 } from "@/lib/types/api";
+import { APP_VERSION } from "./version";
 
 
 // --- 設定與工具 ---
@@ -66,29 +69,19 @@ export function saveLocalUserProfile(profile: UserProfile): void {
 
 /** 同步使用者個人資料至雲端 */
 export async function syncUserProfile(profile: UserProfile): Promise<SyncUserProfileResponse> {
-  const deviceId = profile.device_id || (typeof window !== "undefined" ? localStorage.getItem("device_id") : null) || "";
-  return request<SyncUserProfileResponse>("/api/user/profile", {
+  return request<SyncUserProfileResponse>("/api/user/profile/sync", {
     method: "POST",
-    body: JSON.stringify({
-      device_id: deviceId,
-      profile: profile
-    } as SyncUserProfileRequest),
+    body: JSON.stringify({ ...profile, app_version: APP_VERSION } as SyncUserProfileRequest),
   });
 }
 
-export function getLocalPrivateNotes(): PrivateNoteStore {
-  if (typeof window === "undefined") return {};
-  const raw = localStorage.getItem("private_notes");
-  return raw ? JSON.parse(raw) : {};
-}
-
-export function saveLocalPrivateNotes(notes: PrivateNoteStore): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("private_notes", JSON.stringify(notes));
+/** 從後端取得使用者個人資料 */
+export async function fetchUserProfile(device_id: string): Promise<GetUserProfileResponse> {
+  return request<GetUserProfileResponse>(`/api/user/profile?device_id=${encodeURIComponent(device_id)}`);
 }
 
 // ============================================================
-// 2. 課表系統 (實戰 API)
+// 2. 課表系統
 // ============================================================
 
 /** 取得雲端課表 */
@@ -96,7 +89,7 @@ export async function fetchTimetable(req: FetchTimetableRequest): Promise<FetchT
   const cached = getCachedData<FetchTimetableResponse>("cache_timetable");
   if (cached?.fresh) return cached.data;
 
-  const data = await request<FetchTimetableResponse>(`/api/timetable?invite_code=${req.invite_code}`);
+  const data = await request<FetchTimetableResponse>(`/api/timetable?invite_code=${encodeURIComponent(req.invite_code)}`);
   setCachedData("cache_timetable", data);
   return data;
 }
@@ -130,6 +123,17 @@ export async function addTimetableNote(req: AddNoteRequest): Promise<AddNoteResp
     method: "POST",
     body: JSON.stringify(req),
   });
+}
+
+export function getLocalPrivateNotes(): PrivateNoteStore {
+  if (typeof window === "undefined") return {};
+  const raw = localStorage.getItem("private_notes");
+  return raw ? JSON.parse(raw) : {};
+}
+
+export function saveLocalPrivateNotes(notes: PrivateNoteStore): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("private_notes", JSON.stringify(notes));
 }
 // ============================================================
 // 3. 行事曆/公告 (目前維持精美 Mock)
