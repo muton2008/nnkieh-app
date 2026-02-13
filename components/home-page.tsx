@@ -11,9 +11,11 @@ import {
 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import type { TabId } from "@/lib/types/common";
+import type { UserProfile } from "@/lib/types/user";
+import { DEFAULT_USER_PROFILE } from "@/lib/types/user";
 import { getLocalUserProfile, saveLocalUserProfile, syncUserProfile } from "@/lib/api-client";
-
 import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
+import { getFCMToken } from "@/lib/firebase";
 
 // --- Types ---
 interface TodayScheduleItem {
@@ -72,6 +74,10 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
   const [message] = useState(getRandomMessage);
   const [todaySchedule, setTodaySchedule] = useState<TodayScheduleItem[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [profile, setProfile] = useState<UserProfile>({
+    ...DEFAULT_USER_PROFILE,
+    device_id: deviceId,
+  });
 
   // 輔助函式：將 API 回傳的原始 schedule 轉換成今日首頁顯示格式
   const processScheduleData = useCallback((scheduleObj: any) => {
@@ -141,21 +147,26 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
           setUpcomingEvents(cData.events.slice(0, 3));
         }
 
-        // 註冊users_profile
-        const profile = getLocalUserProfile();
-        if (!profile || !profile.device_id) {
-          const res = await syncUserProfile({
-            device_id: deviceId,
-            division:"no disturb",
-            notify_all: false,
-          });
-          if (res.success && res.updated_at) {
-            saveLocalUserProfile({
-              device_id: deviceId,
-              division:"no disturb",
-              notify_all: false,
-              updated_at: res.updated_at,
-            });
+        // 初始化用戶資料
+        const storedProfile = getLocalUserProfile();
+        const initialProfile = storedProfile || {
+          device_id: deviceId,
+          division: "no disturb" as const,
+          notify_all: false,
+        };
+        setProfile(initialProfile);
+        
+        // 如果是新用戶，同步到伺服器
+        if (!storedProfile) {
+          try {
+            const res = await syncUserProfile(initialProfile);
+            if (res.success && res.updated_at) {
+              const updated = { ...initialProfile, updated_at: res.updated_at };
+              setProfile(updated);
+              saveLocalUserProfile(updated);
+            }
+          } catch (e) {
+            console.error("[HomePage] sync profile error:", e);
           }
         }
       } catch (e) {
@@ -168,6 +179,30 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
     loadData();
     return () => { cancelled = true; };
   }, [deviceId, processScheduleData]);
+
+  // 自動檢查和更新 FCM Token
+  useEffect(() => {
+    if (loading || !profile.device_id) return;
+
+    const refreshFCMToken = async () => {
+      try {
+        // 檢查通知權限，若已授予則自動更新 token
+        if (Notification.permission === "granted") {
+          const latestToken = await getFCMToken();
+          if (latestToken && latestToken !== profile.fcm_token) {
+            const updated = { ...profile, fcm_token: latestToken };
+            await syncUserProfile(updated);
+            setProfile(updated);
+            saveLocalUserProfile(updated);
+          }
+        }
+      } catch (err) {
+        console.error("[HomePage] FCM token refresh failed:", err);
+      }
+    };
+
+    refreshFCMToken();
+  }, [loading, profile.device_id]);
 
   if (loading) {
     return (

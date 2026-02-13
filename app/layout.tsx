@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 
 const notoSans = Noto_Sans_TC({
   subsets: ["latin"],
@@ -44,6 +45,7 @@ export default function RootLayout({
   return (
     <html lang="zh-TW" className={`${notoSans.variable} ${notoSerif.variable}`}>
       <body className="font-sans antialiased desktop-shell min-h-screen">
+      <ServiceWorkerRegister />
         <div className="mx-auto max-w-[450px] min-h-screen bg-background relative shadow-sm">
           {children}
         </div>

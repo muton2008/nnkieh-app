@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Check, RefreshCw, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getFCMToken } from "@/lib/firebase";
 
 import {
   DEFAULT_USER_PROFILE,
@@ -71,18 +72,25 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   }, [deviceId]);
 
   const handleSync = useCallback(async () => {
+    if (syncStatus === "syncing") return;
     setSyncStatus("syncing");
+    const permission = await Notification.requestPermission();
     try {
-      saveLocalUserProfile(profile);
-      const res = await syncUserProfile(profile);
-      if (res.success) {
-        if (res.updated_at) {
-          const updated = { ...profile, updated_at: res.updated_at };
-          setProfile(updated);
-          saveLocalUserProfile(updated);
+      if (permission === "granted") {
+        const fcmToken = await getFCMToken();
+        if (!fcmToken) {
+          alert("無法取得 FCM Token，請確認瀏覽器設定");
+          setSyncStatus("error");
+          setTimeout(() => setSyncStatus("idle"), 2000);
+          return;
         }
+        const updatedProfile = { ...profile, fcm_token: fcmToken };
+        await syncUserProfile(updatedProfile);
+        setProfile(updatedProfile);
+        saveLocalUserProfile(updatedProfile);
         setSyncStatus("synced");
-      } else {
+      } else if (profile.division !== "no disturb" || profile.notify_all) {
+        alert("需要通知權限才能同步設定");
         setSyncStatus("error");
       }
     } catch {
