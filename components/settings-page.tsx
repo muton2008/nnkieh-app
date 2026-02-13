@@ -122,16 +122,16 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 pb-24 space-y-5">
-        {/* 部別選擇 */}
+        {/* 接收重要公告 */}
         <section className="bg-card border border-border rounded-sm p-4">
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-xs font-medium text-foreground">部別選擇</h2>
+            <h2 className="text-xs font-medium text-foreground">接收重要公告</h2>
             {profile.notify_all && (
               <span className="text-[10px] text-amber-600 font-light">已鎖定為全部</span>
             )}
           </div>
           <p className="text-[10px] text-muted-foreground/50 font-light mb-3">
-            選擇要收取哪個部別的重要通知
+            選擇要收取哪個部別的重要公告
           </p>
           <div className="grid grid-cols-2 gap-2">
             {DIVISION_OPTIONS.map((opt) => {
@@ -177,7 +177,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
                 <BellOff size={16} className="text-muted-foreground/40" />
               )}
               <div>
-                <h2 className="text-xs font-medium text-foreground">接收所有通知</h2>
+                <h2 className="text-xs font-medium text-foreground">接收所有公告</h2>
                 <p className="text-[10px] text-muted-foreground/50 font-light mt-0.5">
                   {profile.notify_all ? "將收到所有公告通知，部別選擇已鎖定" : "僅接收重要公告通知"}
                 </p>

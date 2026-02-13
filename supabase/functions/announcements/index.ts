@@ -403,13 +403,15 @@ function shouldUserReceiveNotification(
     return false;
   }
 
-  // 如果是一般公告，只有 notify_all 為 true 的用戶才接收
-  if (importance === 0 && !user.notify_all) {
-    return false;
+  if (user.notify_all) {
+    return true;
   }
 
   // 檢查部別是否匹配
-  return divisionMatches(user.division, announcementDivisions);
+  if ( importance === 1) {
+    return divisionMatches(user.division, announcementDivisions);
+  }
+  return false;
 }
 
 /**
