@@ -161,6 +161,8 @@ async function getBus(): Promise<BusInfo[]> {
 
 async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); //vercel爬蟲被南管局阻擋，暫停此服務
     const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
     
     // 你要查詢的兩個目標站點
@@ -169,8 +171,6 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
     
     // 指定要保留的路線關鍵字
     const WANTED_ROUTES = ["紅線", "藍線", "橘線", "實中線", "LM線"];
-
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; 
 
     // 初始化回傳容器
     const finalData: Record<string, STSPBusInfo[]> = {};
@@ -202,12 +202,14 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
         const allRoutes = json.routes || [];
 
         const filtered = allRoutes
-          .filter((r: any) => 
-            // 1. 必須是我們要的路線
-            WANTED_ROUTES.some(name => r.routeName.includes(name)) &&
-            // 2. 必須有時間資訊且不是「尚未發車」
-            r.estimateTime && r.estimateTime !== "尚未發車"
-          )
+          .filter((r: any) => {
+            const isWanted = WANTED_ROUTES.some(name => r.routeName.includes(name));
+            const rawTime = r.estimateTime || "";
+            
+            const hasValidTime = rawTime.includes("分") || rawTime.includes(":");
+            
+            return isWanted && hasValidTime;
+          })
           .map((r: any) => ({
             route: `${r.routeName} (${r.subRouteName})`,
             destination: r.destination,

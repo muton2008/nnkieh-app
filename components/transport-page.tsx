@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp } from "lucide-react";
+import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import { TransportDataResponse } from "@/lib/types/api";
 
@@ -150,7 +150,19 @@ export function TransportPage() {
   }, [refreshing]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {/* 載入中遮罩 */}
+      {(loading || refreshing) && (
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-background border border-border/50 rounded-lg px-6 py-4 shadow-lg flex items-center gap-3">
+            <Loader2 size={20} className="animate-spin text-foreground/70" strokeWidth={2} />
+            <span className="text-sm font-medium text-foreground">
+              {loading ? "載入中..." : "更新中..."}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="px-5 pt-12 pb-3 flex items-center justify-between">
         <div>
@@ -279,7 +291,7 @@ export function TransportPage() {
               <div className="flex items-center gap-2 mb-2.5">
                 <Bus size={16} strokeWidth={1.5} className="text-foreground/60" />
                 <h2 className="text-sm font-medium text-foreground">
-                  南科巡迴巴士 &middot; 站點動態
+                  南科巡迴巴士 &middot; 站點動態(暫不支援)
                 </h2>
               </div>
 
