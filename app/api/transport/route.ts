@@ -188,7 +188,8 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
           },
           body: JSON.stringify({ stopName: stopName, language: "ZH" }),
-          next: { revalidate: 60 }
+          next: { revalidate: 60 },
+          signal: controller.signal
         });
 
         if (!res.ok) {
