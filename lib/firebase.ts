@@ -14,11 +14,18 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-export const getFCMToken = async () => {
+export const getFCMToken = async (): Promise<string | null> => {
   try {
+    // 確保 Service Worker 已註冊並取得 registration
+    let swRegistration: ServiceWorkerRegistration | undefined;
+    if ("serviceWorker" in navigator) {
+      swRegistration = await navigator.serviceWorker.ready;
+    }
+
     const messaging = getMessaging(app);
     const token = await getToken(messaging, {
-      vapidKey: "BJBKkX8w8av_8N-a2wjqOFw5MKL69PZBENhDEfIf_KDocqB5n2ywENrMypfz5lxhDuboH5VGHwko9ESsUuabr-E", 
+      vapidKey: "BJBKkX8w8av_8N-a2wjqOFw5MKL69PZBENhDEfIf_KDocqB5n2ywENrMypfz5lxhDuboH5VGHwko9ESsUuabr-E",
+      serviceWorkerRegistration: swRegistration,
     });
     return token;
   } catch (error) {

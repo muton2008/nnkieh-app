@@ -74,31 +74,74 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   const handleSync = useCallback(async () => {
     if (syncStatus === "syncing") return;
     setSyncStatus("syncing");
-    const permission = await Notification.requestPermission();
+
     try {
-      if (permission === "granted") {
-        const registration = await navigator.serviceWorker.ready;
-        const fcmToken = await getFCMToken();
-        if (!fcmToken) {
-          alert("無法取得 FCM Token，請確認瀏覽器設定");
+      const needsNotification = profile.division !== "no disturb" || profile.notify_all;
+
+      // --- 需要通知的情境 ---
+      if (needsNotification) {
+        // 1. 檢查瀏覽器是否支援通知
+        if (typeof Notification === "undefined") {
+          alert("此瀏覽器不支援推播通知，通知設定將僅儲存在本機");
+          // 仍然同步其他設定（不帶 fcm_token）
+          await syncUserProfile(profile);
+          saveLocalUserProfile(profile);
+          setSyncStatus("synced");
+          setTimeout(() => setSyncStatus("idle"), 2000);
+          return;
+        }
+
+        // 2. 請求通知權限
+        const permission = await Notification.requestPermission();
+
+        if (permission === "denied") {
+          alert("通知權限已被封鎖。\n\n請到瀏覽器設定 → 網站權限 → 通知，將本站改為「允許」後再試。");
           setSyncStatus("error");
           setTimeout(() => setSyncStatus("idle"), 2000);
           return;
         }
+
+        if (permission === "default") {
+          // 使用者關閉了權限對話框（未選擇）
+          alert("需要允許通知權限才能接收推播，請再試一次並點選「允許」");
+          setSyncStatus("error");
+          setTimeout(() => setSyncStatus("idle"), 2000);
+          return;
+        }
+
+        // 3. permission === "granted"，取得 FCM Token
+        const fcmToken = await getFCMToken();
+
+        if (!fcmToken) {
+          alert("無法取得推播 Token，請確認網路連線或重新整理頁面後再試");
+          setSyncStatus("error");
+          setTimeout(() => setSyncStatus("idle"), 2000);
+          return;
+        }
+
+        // 4. 帶 FCM Token 同步
         const updatedProfile = { ...profile, fcm_token: fcmToken };
         await syncUserProfile(updatedProfile);
         setProfile(updatedProfile);
         saveLocalUserProfile(updatedProfile);
         setSyncStatus("synced");
-      } else if (profile.division !== "no disturb" || profile.notify_all) {
-        alert("需要通知權限才能同步設定");
-        setSyncStatus("error");
+      } else {
+        // --- 不需要通知的情境（division = "no disturb" 且 notify_all = false）---
+        // 清除 fcm_token，同步設定到後端
+        const updatedProfile = { ...profile, fcm_token: "" };
+        await syncUserProfile(updatedProfile);
+        setProfile(updatedProfile);
+        saveLocalUserProfile(updatedProfile);
+        setSyncStatus("synced");
       }
-    } catch {
+    } catch (error) {
+      console.error("[SettingsPage] 同步失敗:", error);
+      alert("同步失敗，請檢查網路連線後再試");
       setSyncStatus("error");
     }
+
     setTimeout(() => setSyncStatus("idle"), 2000);
-  }, [profile]);
+  }, [profile, syncStatus]);
 
   const updateField = useCallback(
     <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => {
