@@ -3,9 +3,7 @@ import { getTDXToken } from '@/lib/tdx';
 import type { TrainInfo, DirectionInfo, BusInfo, STSPBusInfo, YouBikeData, YouBikeStation } from '@/lib/types/transport';
 import type { TransportDataResponse } from '@/lib/types/api';
 
-const headers : Record<string, string> = {}
-
-async function getTrain() {
+async function getTrain(headers: Record<string, string>): Promise<{ north: TrainInfo[]; south: TrainInfo[] }> {
   const url = "https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/LiveBoard/Station/4180";
   try {
     const res = await fetch(url, {
@@ -62,7 +60,7 @@ async function getTrain() {
   }
 }
 
-async function getBus(): Promise<BusInfo[]> {
+async function getBus(headers: Record<string, string>): Promise<BusInfo[]> {
   try {
     const TARGET_ROUTES = ["綠2", "綠3", "橘12", "橘14"];
     const TARGET_STOPS = ["南科實中", "民生水塔"];
@@ -248,7 +246,7 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
   }
 }
 
-async function getYouBike(): Promise<YouBikeStation[]> {
+async function getYouBike(headers: Record<string, string>): Promise<YouBikeStation[]> {
   try {
     // 站點 ID 與名稱的對照表 (確保順序與名稱正確)
     const STATIONS = [
@@ -296,13 +294,15 @@ async function getYouBike(): Promise<YouBikeStation[]> {
 export async function GET() {
   try {
     const tdxToken = await getTDXToken();
-    headers['authorization'] = 'Bearer ' + tdxToken;
+    const headers = {
+      'Authorization': `Bearer ${tdxToken}`,
+    };
 
     const results = await Promise.allSettled([
-      getTrain(),
-      getBus(),
+      getTrain(headers),
+      getBus(headers),
       getSTSPBusData(),
-      getYouBike()
+      getYouBike(headers)
     ]);
 
     const train = results[0].status === 'fulfilled' ? results[0].value : { south: [], north: [] };
@@ -317,7 +317,7 @@ export async function GET() {
       STSP_buses: stspBus,
       youbike: youbike,
       updated_at: new Date().toISOString()
-    });
+    } as TransportDataResponse);
   } catch (error) {
     console.error("Critical Transport API Error:", error);
     return NextResponse.json({ error: "Service unavailable" }, { status: 500 });
