@@ -160,9 +160,10 @@ async function getBus(): Promise<BusInfo[]> {
 
 
 async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
+  return {}; //南管局ssl過期
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000); //vercel爬蟲被南管局阻擋，暫停此服務
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); //vercel爬蟲被南管局阻擋，暫停此服務
     const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
     
     // 你要查詢的兩個目標站點
@@ -242,6 +243,8 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
   } catch (error) {
     console.error("STSP Bus Total Error:", error);
     return {};
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -291,16 +294,32 @@ async function getYouBike(): Promise<YouBikeStation[]> {
 }
 
 export async function GET() {
+  try {
     const tdxToken = await getTDXToken();
-    headers['authorization']= 'Bearer ' + tdxToken;
-    const [train, bus, stspBus, youbike] = await Promise.all([getTrain(), getBus(), getSTSPBusData(), getYouBike()]);
-    const response: TransportDataResponse = {    
-        trains_south: train.south,
-        trains_north: train.north,
-        buses: bus,
-        STSP_buses : stspBus,
-        youbike: youbike,
-        updated_at: new Date().toISOString()
-    }
-    return NextResponse.json(response);
+    headers['authorization'] = 'Bearer ' + tdxToken;
+
+    const results = await Promise.allSettled([
+      getTrain(),
+      getBus(),
+      getSTSPBusData(),
+      getYouBike()
+    ]);
+
+    const train = results[0].status === 'fulfilled' ? results[0].value : { south: [], north: [] };
+    const bus = results[1].status === 'fulfilled' ? results[1].value : [];
+    const stspBus = results[2].status === 'fulfilled' ? results[2].value : {};
+    const youbike = results[3].status === 'fulfilled' ? results[3].value : [];
+
+    return NextResponse.json({
+      trains_south: train.south,
+      trains_north: train.north,
+      buses: bus,
+      STSP_buses: stspBus,
+      youbike: youbike,
+      updated_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Critical Transport API Error:", error);
+    return NextResponse.json({ error: "Service unavailable" }, { status: 500 });
+  }
 }

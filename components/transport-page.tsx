@@ -118,14 +118,6 @@ export function TransportPage() {
     initFetch();
   }, [initFetch]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-      setLastUpdate(Date.now());
-    }, 700);
-    return () => clearTimeout(timer);
-  }, []);
-
   const [secondsAgo, setSecondsAgo] = useState(0);
   useEffect(() => {
     if (!lastUpdate) return;
