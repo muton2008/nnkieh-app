@@ -77,6 +77,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     const permission = await Notification.requestPermission();
     try {
       if (permission === "granted") {
+        const registration = await navigator.serviceWorker.ready;
         const fcmToken = await getFCMToken();
         if (!fcmToken) {
           alert("無法取得 FCM Token，請確認瀏覽器設定");
