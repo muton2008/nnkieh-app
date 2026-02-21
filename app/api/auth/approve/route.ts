@@ -1,3 +1,5 @@
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SignJWT } from "jose";
@@ -22,17 +24,7 @@ export async function POST(request: Request) {
     }
 
     //  金鑰解碼處理
-    let jwtSecretKey: Uint8Array;
-    try {
-      jwtSecretKey = Buffer.from(secretFromEnv, "hex");
-      console.log("[Approve API] Byte length after hex decode:", jwtSecretKey.length);
-    } catch (e) {
-      console.error("[Encoding Error] Failed to decode hex secret key");
-      return NextResponse.json(
-        { success: false, message: "金鑰十六進位解析失敗" },
-        { status: 500 }
-      );
-    }
+    const jwtSecretKey = new TextEncoder().encode(secretFromEnv.trim());
 
     // 最終長度檢查，避免 jose 報 Zero-length key 錯誤
     if (jwtSecretKey.length === 0) {
