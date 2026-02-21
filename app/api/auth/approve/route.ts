@@ -6,6 +6,8 @@ import jwt from "jsonwebtoken";
 
 export async function POST(request: Request) {
   console.log("=== START APPROVE API ===");
+  console.log("Request Body:", await request.text()); // 先讀取原始 body 以供除錯
+  console.log(process.env)
   /*
   try {
     const secret = process.env.JWT_SECRET?.trim();
