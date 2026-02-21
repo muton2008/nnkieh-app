@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import jwt from "jsonwebtoken";
+//import jwt from "jsonwebtoken";
 
 export async function POST(request: Request) {
   console.log("=== START APPROVE API ===");
