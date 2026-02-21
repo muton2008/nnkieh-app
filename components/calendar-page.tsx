@@ -1,7 +1,22 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Plus, X, Check, Pencil, Trash2 } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import dayjs from "dayjs";
+import isBetween from "dayjs/plugin/isBetween";
+import "dayjs/locale/zh-tw";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Shield,
+  ShieldOff,
+  Clock,
+  CalendarDays,
+  X,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,448 +25,826 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
+import { useAdmin } from "./admin-context";
+import { AdminAuthModal } from "./admin-auth-modal";
 
-import { SchoolCalendarEvent, PrivateCalendarEvent } from "@/lib/types/calendar";
+import type {
+  SchoolCalendarEvent,
+  PrivateCalendarEvent,
+  CombinedEvent,
+  EventCategory,
+  PrivateEventCategory,
+} from "@/lib/types/calendar";
 import {
   fetchSchoolCalendar,
   getLocalPrivateEvents,
   saveLocalPrivateEvents,
-  syncPrivateEvents,
+  saveSchoolEvent,
 } from "@/lib/api-client";
 
-// --- Color options for private events ---
-const COLOR_OPTIONS = [
-  { id: "pink" as const, label: "粉", class: "bg-macaron-pink", ring: "ring-pink-300" },
-  { id: "green" as const, label: "綠", class: "bg-macaron-green", ring: "ring-emerald-300" },
-  { id: "yellow" as const, label: "黃", class: "bg-macaron-yellow", ring: "ring-amber-300" },
-  { id: "blue" as const, label: "藍", class: "bg-macaron-blue", ring: "ring-sky-300" },
+dayjs.extend(isBetween);
+dayjs.locale("zh-tw");
+
+// --- UI Constants ---
+
+const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"] as const;
+
+const ALL_CATEGORIES: PrivateEventCategory[] = [
+  "考試", "升學", "活動", "放假", "社團", "其他", "讀書", "運動",
 ];
 
-function getColorClass(color: PrivateCalendarEvent["color"]): string {
-  return COLOR_OPTIONS.find((c) => c.id === color)?.class ?? "bg-macaron-pink";
+const CATEGORY_DOT: Record<PrivateEventCategory, string> = {
+  考試: "bg-orange-400",
+  升學: "bg-red-500",
+  活動: "bg-green-500",
+  放假: "bg-sky-400",
+  社團: "bg-purple-500",
+  其他: "bg-gray-400",
+  讀書: "bg-amber-500",
+  運動: "bg-teal-500",
+};
+
+const CATEGORY_BADGE: Record<PrivateEventCategory, string> = {
+  考試: "bg-orange-50 text-orange-600 border-orange-200",
+  升學: "bg-red-50 text-red-600 border-red-200",
+  活動: "bg-green-50 text-green-600 border-green-200",
+  放假: "bg-sky-50 text-sky-600 border-sky-200",
+  社團: "bg-purple-50 text-purple-600 border-purple-200",
+  其他: "bg-gray-50 text-gray-600 border-gray-200",
+  讀書: "bg-amber-50 text-amber-600 border-amber-200",
+  運動: "bg-teal-50 text-teal-600 border-teal-200",
+};
+
+// --- Helpers ---
+
+/** 將 SchoolCalendarEvent + PrivateCalendarEvent 合併成統一的 CombinedEvent */
+function mergeEvents(
+  school: SchoolCalendarEvent[],
+  priv: PrivateCalendarEvent[]
+): CombinedEvent[] {
+  const fromSchool: CombinedEvent[] = school.map((e) => ({
+    id: e.id,
+    date: e.date,
+    end_date: e.end_date,
+    start_time: e.start_time,
+    end_time: e.end_time,
+    title: e.title,
+    description: e.description,
+    category: e.category as PrivateEventCategory,
+    target_audience: e.target_audience,
+    isPrivate: false,
+    sourceId: e.id,
+  }));
+
+  const fromPrivate: CombinedEvent[] = priv.map((e) => ({
+    id: e.id,
+    date: e.date,
+    end_date: e.end_date,
+    start_time: e.start_time,
+    end_time: e.end_time,
+    title: e.title,
+    description: e.description,
+    category: e.category as PrivateEventCategory,
+    isPrivate: true,
+    sourceId: e.id,
+  }));
+
+  return [...fromSchool, ...fromPrivate];
 }
+
+/** 取得指定日期的事件 */
+function getEventsForDay(events: CombinedEvent[], date: dayjs.Dayjs): CombinedEvent[] {
+  return events
+    .filter((e) => {
+      const start = dayjs(e.date).startOf("day");
+      const end = e.end_date ? dayjs(e.end_date).endOf("day") : start.endOf("day");
+      return date.isBetween(start, end, "day", "[]");
+    })
+    .sort((a, b) => {
+      // 全天事件排前面
+      const aAllDay = !a.start_time;
+      const bAllDay = !b.start_time;
+      if (aAllDay && !bAllDay) return -1;
+      if (!aAllDay && bAllDay) return 1;
+      if (a.start_time && b.start_time) return a.start_time.localeCompare(b.start_time);
+      return 0;
+    });
+}
+
+function generateId(): string {
+  return `priv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// --- Component ---
 
 interface CalendarPageProps {
   deviceId: string;
 }
 
 export function CalendarPage({ deviceId }: CalendarPageProps) {
+  const { isAdminMode, session, disableAdminMode } = useAdmin();
   const [loading, setLoading] = useState(true);
+  const [currentMonth, setCurrentMonth] = useState(dayjs());
+  const [selectedDate, setSelectedDate] = useState(dayjs());
   const [schoolEvents, setSchoolEvents] = useState<SchoolCalendarEvent[]>([]);
   const [privateEvents, setPrivateEvents] = useState<PrivateCalendarEvent[]>([]);
-  const [semester, setSemester] = useState("");
-  const [activeTab, setActiveTab] = useState<"school" | "private">("school");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  // Add/Edit dialog
-  const [showDialog, setShowDialog] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<PrivateCalendarEvent | null>(null);
-  const [formDate, setFormDate] = useState("");
-  const [formTitle, setFormTitle] = useState("");
-  const [formDesc, setFormDesc] = useState("");
-  const [formColor, setFormColor] = useState<PrivateCalendarEvent["color"]>("pink");
+  // 新增/編輯事件表單
+  const [editingEvent, setEditingEvent] = useState<CombinedEvent | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newDate, setNewDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [newEndDate, setNewEndDate] = useState("");
+  const [newStartTime, setNewStartTime] = useState("");
+  const [newEndTime, setNewEndTime] = useState("");
+  const [newCategory, setNewCategory] = useState<PrivateEventCategory>("其他");
+  const [newTargetAudience, setNewTargetAudience] = useState<string>("全校");
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Auto-save
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 盾牌長按 (3 秒備援)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- Load data ---
+  // --- Data Loading ---
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+
+    const load = async () => {
       try {
-        const data = await fetchSchoolCalendar();
-        if (cancelled) return;
-        setSchoolEvents(data.events);
-        setSemester(data.semester);
+        const localPriv = getLocalPrivateEvents();
+        if (!cancelled) setPrivateEvents(localPriv);
+
+        const res = await fetchSchoolCalendar();
+        if (!cancelled && res?.events) {
+          setSchoolEvents(res.events);
+        }
       } catch (e) {
-        console.error("[CalendarPage] fetch error:", e);
+        console.error("[CalendarPage] load error:", e);
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-    setPrivateEvents(getLocalPrivateEvents());
+    };
+
+    load();
     return () => { cancelled = true; };
   }, []);
 
-  // --- Auto-save private events ---
-  const triggerAutoSave = useCallback(
-    (events: PrivateCalendarEvent[]) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      setSaveStatus("saving");
-      saveTimerRef.current = setTimeout(async () => {
-        try {
-          await syncPrivateEvents({ device_id: deviceId, events });
-          setSaveStatus("saved");
-          setTimeout(() => setSaveStatus("idle"), 2000);
-        } catch {
-          setSaveStatus("idle");
-        }
-      }, 1500);
-    },
-    [deviceId]
+  // --- Combined Events ---
+  const allEvents = useMemo(
+    () => mergeEvents(schoolEvents, privateEvents),
+    [schoolEvents, privateEvents]
   );
 
-  // --- Event CRUD ---
-  const openAddDialog = useCallback(() => {
-    setEditingEvent(null);
-    setFormDate("");
-    setFormTitle("");
-    setFormDesc("");
-    setFormColor("pink");
-    setShowDialog(true);
-  }, []);
+  // --- Calendar Grid ---
+  const calendarDays = useMemo(() => {
+    const startOfMonth = currentMonth.startOf("month");
+    const startDay = startOfMonth.day();
+    const offset = startDay === 0 ? 6 : startDay - 1;
+    const gridStart = startOfMonth.subtract(offset, "day");
 
-  const openEditDialog = useCallback((event: PrivateCalendarEvent) => {
-    setEditingEvent(event);
-    setFormDate(event.date);
-    setFormTitle(event.title);
-    setFormDesc(event.description);
-    setFormColor(event.color);
-    setShowDialog(true);
-  }, []);
-
-  const handleSaveEvent = useCallback(() => {
-    if (!formDate.trim() || !formTitle.trim()) return;
-
-    let updated: PrivateCalendarEvent[];
-    if (editingEvent) {
-      // Update
-      updated = privateEvents.map((e) =>
-        e.id === editingEvent.id
-          ? { ...e, date: formDate.trim(), title: formTitle.trim(), description: formDesc.trim(), color: formColor }
-          : e
-      );
-    } else {
-      // Create
-      const newEvent: PrivateCalendarEvent = {
-        id: `private-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        date: formDate.trim(),
-        title: formTitle.trim(),
-        description: formDesc.trim(),
-        color: formColor,
-      };
-      updated = [...privateEvents, newEvent];
+    const days: dayjs.Dayjs[] = [];
+    for (let i = 0; i < 42; i++) {
+      days.push(gridStart.add(i, "day"));
     }
+    return days;
+  }, [currentMonth]);
 
-    // Sort by date
-    updated.sort((a, b) => a.date.localeCompare(b.date));
-    setPrivateEvents(updated);
-    saveLocalPrivateEvents(updated);
-    triggerAutoSave(updated);
-    setShowDialog(false);
-  }, [editingEvent, formDate, formTitle, formDesc, formColor, privateEvents, triggerAutoSave]);
+  const selectedDayEvents = useMemo(
+    () => getEventsForDay(allEvents, selectedDate),
+    [allEvents, selectedDate]
+  );
 
-  const handleDeleteEvent = useCallback(
-    (id: string) => {
-      const updated = privateEvents.filter((e) => e.id !== id);
+  // --- Handlers ---
+  const goToPrevMonth = () => setCurrentMonth((m) => m.subtract(1, "month"));
+  const goToNextMonth = () => setCurrentMonth((m) => m.add(1, "month"));
+  const goToToday = () => {
+    setCurrentMonth(dayjs());
+    setSelectedDate(dayjs());
+  };
+
+  // 盾牌圖示：點擊 → 開啟 AuthModal；長按 3 秒 → 備援(目前也開啟 AuthModal)
+  const handleShieldClick = () => {
+    if (isAdminMode) {
+      disableAdminMode();
+      return;
+    }
+    setShowAuthModal(true);
+  };
+
+  const handleShieldPointerDown = () => {
+    longPressTimer.current = setTimeout(() => {
+      // 長按 3 秒：強制喚醒授權流程（備援入口）
+      setShowAuthModal(true);
+    }, 3000);
+  };
+
+  const handleShieldPointerUp = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const resetForm = () => {
+    setNewTitle("");
+    setNewDescription("");
+    setNewDate(selectedDate.format("YYYY-MM-DD"));
+    setNewEndDate("");
+    setNewStartTime("");
+    setNewEndTime("");
+    setNewCategory("其他");
+    setNewTargetAudience("全校");
+    setEditingEvent(null);
+  };
+
+  const openAddDialog = (isSchoolEvent = false) => {
+    resetForm();
+    setNewDate(selectedDate.format("YYYY-MM-DD"));
+    setShowAddDialog(true);
+  };
+
+  const openEditDialog = (evt: CombinedEvent) => {
+    setEditingEvent(evt);
+    setNewTitle(evt.title);
+    setNewDescription(evt.description || "");
+    setNewDate(evt.date);
+    setNewEndDate(evt.end_date || "");
+    setNewStartTime(evt.start_time || "");
+    setNewEndTime(evt.end_time || "");
+    setNewCategory(evt.category);
+    setNewTargetAudience(evt.target_audience || "全校");
+    setShowAddDialog(true);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!newTitle.trim()) return;
+
+    // 管理模式：儲存/新增學校事件
+    if (isAdminMode && (!editingEvent || !editingEvent.isPrivate)) {
+      setIsSaving(true);
+      try {
+        const schoolEvt: SchoolCalendarEvent = {
+          id: editingEvent ? editingEvent.sourceId : `school_${Date.now()}`,
+          date: newDate,
+          end_date: newEndDate || undefined,
+          start_time: newStartTime || undefined,
+          end_time: newEndTime || undefined,
+          title: newTitle.trim(),
+          description: newDescription.trim() || null,
+          category: newCategory as EventCategory,
+          target_audience: newTargetAudience as SchoolCalendarEvent["target_audience"],
+          updated_at: new Date().toISOString(),
+          updated_by: session?.deviceId ?? "unknown",
+        };
+
+        await saveSchoolEvent(schoolEvt);
+
+        // 更新本地狀態
+        if (editingEvent) {
+          setSchoolEvents((prev) =>
+            prev.map((e) => (e.id === editingEvent.sourceId ? schoolEvt : e))
+          );
+        } else {
+          setSchoolEvents((prev) => [...prev, schoolEvt]);
+        }
+      } catch (e) {
+        console.error("[CalendarPage] save school event error:", e);
+        alert("儲存失敗，請確認管理員授權是否有效");
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      // 一般用戶/私人事件
+      const event: PrivateCalendarEvent = {
+        id: editingEvent?.isPrivate ? editingEvent.sourceId : generateId(),
+        date: newDate,
+        end_date: newEndDate || undefined,
+        start_time: newStartTime || undefined,
+        end_time: newEndTime || undefined,
+        title: newTitle.trim(),
+        description: newDescription.trim() || null,
+        category: newCategory,
+      };
+
+      let updated: PrivateCalendarEvent[];
+      if (editingEvent?.isPrivate) {
+        updated = privateEvents.map((e) => (e.id === editingEvent.sourceId ? event : e));
+      } else {
+        updated = [...privateEvents, event];
+      }
       setPrivateEvents(updated);
       saveLocalPrivateEvents(updated);
-      triggerAutoSave(updated);
-    },
-    [privateEvents, triggerAutoSave]
-  );
+    }
+
+    setShowAddDialog(false);
+    setEditingEvent(null);
+  };
+
+  const handleDeleteEvent = async (evt: CombinedEvent) => {
+    if (evt.isPrivate) {
+      const updated = privateEvents.filter((e) => e.id !== evt.sourceId);
+      setPrivateEvents(updated);
+      saveLocalPrivateEvents(updated);
+    } else if (isAdminMode) {
+      // 管理模式：刪除學校事件
+      try {
+        const res = await fetch("/api/calendar/school/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.accessToken}`,
+            "X-Device-ID": session?.deviceId || "",
+          },
+          body: JSON.stringify({ event_id: evt.sourceId }),
+        });
+        if (res.ok) {
+          setSchoolEvents((prev) => prev.filter((e) => e.id !== evt.sourceId));
+        }
+      } catch (e) {
+        console.error("[CalendarPage] delete error:", e);
+      }
+    }
+  };
+
+  // --- Render ---
+
+  if (loading) {
+    return (
+      <div className="px-5 pt-12 pb-6 space-y-4">
+        <SkeletonBlock className="h-8 w-40" />
+        <SkeletonBlock className="h-4 w-28" />
+        <SkeletonBlock className="h-64 w-full" />
+        <SkeletonBlock className="h-20 w-full" />
+        <SkeletonBlock className="h-20 w-full" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full animate-in fade-in duration-500">
       {/* Header */}
       <header className="px-5 pt-12 pb-2">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-serif text-xl font-semibold text-foreground">行事曆</h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-xs text-muted-foreground font-light">{semester || "載入中..."}</p>
-              {saveStatus === "saving" && (
-                <span className="text-[9px] text-muted-foreground/40 font-light animate-pulse">儲存中...</span>
-              )}
-              {saveStatus === "saved" && (
-                <span className="text-[9px] text-emerald-600/60 font-light flex items-center gap-0.5">
-                  <Check size={9} /> 已儲存
-                </span>
-              )}
-            </div>
+            <p className="text-xs text-muted-foreground font-light mt-0.5">校園與個人行程</p>
           </div>
-          {activeTab === "private" && (
-            <button
-              onClick={openAddDialog}
-              className="flex items-center gap-1 px-2.5 py-1.5 border border-border rounded-sm text-xs text-foreground/70 hover:bg-secondary transition-colors"
-              aria-label="新增私人事件"
-            >
-              <Plus size={13} strokeWidth={1.5} />
-              新增
-            </button>
-          )}
+          {/* 盾牌圖示：隱形入口 */}
+          <button
+            onClick={handleShieldClick}
+            onPointerDown={handleShieldPointerDown}
+            onPointerUp={handleShieldPointerUp}
+            onPointerLeave={handleShieldPointerUp}
+            className={`p-2 transition-colors ${
+              isAdminMode
+                ? "text-amber-500 hover:text-amber-600"
+                : "text-muted-foreground/20 hover:text-muted-foreground/40"
+            }`}
+            aria-label={isAdminMode ? "退出管理模式" : "管理員授權"}
+          >
+            {isAdminMode ? (
+              <Shield size={18} strokeWidth={1.5} className="fill-amber-100" />
+            ) : (
+              <Shield size={18} strokeWidth={1.5} />
+            )}
+          </button>
         </div>
+        {/* Admin mode banner */}
+        <AnimatePresence>
+          {isAdminMode && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-sm">
+                <Shield size={12} className="text-amber-600" />
+                <span className="text-[11px] text-amber-700 font-light">
+                  管理模式已啟用 · {session?.role}
+                </span>
+                <button
+                  onClick={disableAdminMode}
+                  className="ml-auto text-[10px] text-amber-500 hover:text-amber-700 font-light"
+                >
+                  <ShieldOff size={12} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
-      {/* Tab switcher: School / Private */}
-      <div className="px-5 pb-2 flex gap-1.5">
+      {/* Month Navigator */}
+      <div className="flex items-center justify-between px-5 py-3">
         <button
-          onClick={() => setActiveTab("school")}
-          className={`flex-1 py-2 rounded-sm text-xs border transition-all ${
-            activeTab === "school"
-              ? "bg-foreground text-background border-foreground font-medium"
-              : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
-          }`}
+          onClick={goToPrevMonth}
+          className="p-2 text-muted-foreground hover:text-foreground transition-colors"
         >
-          全校行事曆
+          <ChevronLeft size={18} strokeWidth={1.5} />
+        </button>
+        <button onClick={goToToday} className="flex items-center gap-1.5">
+          <h2 className="font-serif text-base font-semibold text-foreground">
+            {currentMonth.format("YYYY 年 M 月")}
+          </h2>
         </button>
         <button
-          onClick={() => setActiveTab("private")}
-          className={`flex-1 py-2 rounded-sm text-xs border transition-all ${
-            activeTab === "private"
-              ? "bg-foreground text-background border-foreground font-medium"
-              : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
-          }`}
+          onClick={goToNextMonth}
+          className="p-2 text-muted-foreground hover:text-foreground transition-colors"
         >
-          我的行事曆
+          <ChevronRight size={18} strokeWidth={1.5} />
         </button>
       </div>
 
-      {/* Timeline content */}
-      <div className="flex-1 overflow-y-auto px-5 pb-24">
-        {loading ? (
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="flex gap-4">
-                <SkeletonBlock className="h-16 w-14 flex-shrink-0" />
-                <SkeletonBlock className="h-16 flex-1" />
+      {/* Calendar Grid */}
+      <div className="px-4 pb-3">
+        <div className="bg-card border border-border rounded-sm overflow-hidden">
+          <div className="grid grid-cols-7 border-b border-border">
+            {WEEKDAYS.map((wd, i) => (
+              <div
+                key={wd}
+                className={`text-center text-[11px] py-2 font-light ${
+                  i >= 5 ? "text-muted-foreground/50" : "text-muted-foreground"
+                }`}
+              >
+                {wd}
               </div>
             ))}
           </div>
-        ) : activeTab === "school" ? (
-          /* School calendar - read only timeline */
-          <SchoolTimeline events={schoolEvents} />
-        ) : (
-          /* Private calendar - editable */
-          <PrivateTimeline
-            events={privateEvents}
-            onEdit={openEditDialog}
-            onDelete={handleDeleteEvent}
-            onAdd={openAddDialog}
-          />
-        )}
+
+          <div className="grid grid-cols-7">
+            {calendarDays.map((day, idx) => {
+              const isToday = day.isSame(dayjs(), "day");
+              const isSelected = day.isSame(selectedDate, "day");
+              const isCurrentMonth = day.isSame(currentMonth, "month");
+              const dayEvts = getEventsForDay(allEvents, day);
+              const uniqueCategories = [...new Set(dayEvts.map((e) => e.category))];
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedDate(day)}
+                  className={`relative flex flex-col items-center justify-start py-1.5 h-[52px] transition-colors border-t border-border/30
+                    ${!isCurrentMonth ? "opacity-30" : ""}
+                    ${isSelected ? "bg-foreground/5" : "hover:bg-foreground/[0.02]"}
+                  `}
+                >
+                  <span
+                    className={`text-xs tabular-nums leading-none mb-1 w-6 h-6 flex items-center justify-center rounded-full
+                      ${isToday ? "bg-foreground text-background font-semibold" : ""}
+                      ${isSelected && !isToday ? "ring-1 ring-foreground/40" : ""}
+                      ${!isToday ? "font-light" : ""}
+                    `}
+                  >
+                    {day.date()}
+                  </span>
+                  <div className="flex gap-[3px] flex-wrap justify-center max-w-[36px]">
+                    {uniqueCategories.slice(0, 3).map((cat) => (
+                      <span
+                        key={cat}
+                        className={`w-[5px] h-[5px] rounded-full ${CATEGORY_DOT[cat]}`}
+                      />
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* Add/Edit private event dialog */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-[360px] rounded-sm p-5">
-          <DialogHeader>
-            <DialogTitle className="font-serif text-base">
-              {editingEvent ? "編輯事件" : "新增私人事件"}
-            </DialogTitle>
-            <DialogDescription className="text-xs font-light">
-              {editingEvent ? "修改此事件的內容" : "記錄你的個人行程安排"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 mt-2">
-            <div>
-              <label className="text-[11px] text-muted-foreground font-light block mb-1">日期</label>
-              <input
-                type="date"
-                value={formDate}
-                onChange={(e) => setFormDate(e.target.value)}
-                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground font-light block mb-1">事件標題</label>
-              <input
-                type="text"
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-                placeholder="例如：生日聚會"
-                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground font-light block mb-1">備註說明</label>
-              <textarea
-                value={formDesc}
-                onChange={(e) => setFormDesc(e.target.value)}
-                placeholder="選填..."
-                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-background placeholder:text-muted-foreground/30 resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                rows={2}
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground font-light block mb-1">顏色標記</label>
-              <div className="flex gap-2">
-                {COLOR_OPTIONS.map((opt) => (
+      {/* Selected date event list */}
+      <div className="flex-1 overflow-y-auto px-5 pb-28">
+        <div className="flex items-center gap-2 mb-3">
+          <CalendarDays size={16} strokeWidth={1.5} className="text-muted-foreground" />
+          <h3 className="font-serif text-sm font-semibold text-foreground">
+            {selectedDate.isSame(dayjs(), "day") ? "今天" : selectedDate.format("M月D日")}{" "}
+            <span className="font-light text-muted-foreground">
+              星期{["日", "一", "二", "三", "四", "五", "六"][selectedDate.day()]}
+            </span>
+          </h3>
+        </div>
+
+        {selectedDayEvents.length === 0 ? (
+          <div className="bg-card border border-border rounded-sm px-4 py-8 text-center">
+            <p className="text-sm text-muted-foreground/40 font-light">這天沒有任何事件</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {selectedDayEvents.map((evt) => (
+              <div
+                key={evt.id}
+                className={`bg-card border border-border rounded-sm px-4 py-3 flex items-start gap-3 group ${
+                  isAdminMode && !evt.isPrivate ? "cursor-pointer hover:border-amber-300" : ""
+                }`}
+                onClick={() => {
+                  if (isAdminMode && !evt.isPrivate) openEditDialog(evt);
+                }}
+              >
+                <span
+                  className={`flex-shrink-0 w-1 h-full min-h-[40px] rounded-full ${CATEGORY_DOT[evt.category]}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                    <Badge
+                      variant="secondary"
+                      className={`text-[9px] px-1.5 py-0 h-4 rounded-sm border font-light ${CATEGORY_BADGE[evt.category]}`}
+                    >
+                      {evt.category}
+                    </Badge>
+                    {evt.isPrivate && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] px-1.5 py-0 h-4 rounded-sm bg-violet-50 text-violet-600 border-violet-200 font-light"
+                      >
+                        私人
+                      </Badge>
+                    )}
+                    {!evt.isPrivate && evt.target_audience && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] px-1.5 py-0 h-4 rounded-sm bg-gray-50 text-gray-500 border-gray-200 font-light"
+                      >
+                        {evt.target_audience}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground font-medium leading-snug">{evt.title}</p>
+                  {evt.description && (
+                    <p className="text-xs text-muted-foreground/60 font-light mt-0.5 line-clamp-2">
+                      {evt.description}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground/40 font-light">
+                    <Clock size={10} />
+                    {evt.start_time ? (
+                      <span>
+                        {evt.start_time}
+                        {evt.end_time ? ` - ${evt.end_time}` : ""}
+                      </span>
+                    ) : (
+                      <span>全天</span>
+                    )}
+                    {evt.end_date && evt.end_date !== evt.date && (
+                      <span className="ml-1">~ {dayjs(evt.end_date).format("M/D")}</span>
+                    )}
+                  </div>
+                </div>
+                {/* 操作按鈕 */}
+                <div className="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                  {/* 管理模式下：公開事件可編輯/刪除 */}
+                  {isAdminMode && !evt.isPrivate && (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEditDialog(evt); }}
+                        className="p-1 text-muted-foreground/30 hover:text-amber-500"
+                        aria-label="編輯事件"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt); }}
+                        className="p-1 text-muted-foreground/30 hover:text-red-500"
+                        aria-label="刪除事件"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  )}
+                  {/* 私人事件可刪除 */}
+                  {evt.isPrivate && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt); }}
+                      className="p-1 text-muted-foreground/30 hover:text-red-500"
+                      aria-label="刪除事件"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Upcoming events */}
+        {(() => {
+          const upcoming = allEvents
+            .filter((e) => dayjs(e.date).isAfter(selectedDate, "day"))
+            .sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
+            .slice(0, 5);
+          if (upcoming.length === 0) return null;
+
+          return (
+            <div className="mt-6">
+              <h3 className="font-serif text-sm font-semibold text-foreground mb-2">接下來</h3>
+              <div className="space-y-1.5">
+                {upcoming.map((evt) => (
                   <button
-                    key={opt.id}
-                    onClick={() => setFormColor(opt.id)}
-                    className={`w-8 h-8 rounded-sm border transition-all ${opt.class} ${
-                      formColor === opt.id ? `ring-2 ${opt.ring} border-foreground/30` : "border-border/50"
-                    }`}
-                    aria-label={opt.label}
-                  />
+                    key={evt.id}
+                    onClick={() => {
+                      setSelectedDate(dayjs(evt.date));
+                      setCurrentMonth(dayjs(evt.date));
+                    }}
+                    className="w-full text-left bg-card border border-border rounded-sm px-3 py-2.5 flex items-center gap-3 hover:shadow-sm transition-shadow active:scale-[0.995]"
+                  >
+                    <span
+                      className={`flex-shrink-0 w-[5px] h-[5px] rounded-full ${CATEGORY_DOT[evt.category]}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{evt.title}</p>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground/40 font-light flex-shrink-0 tabular-nums">
+                      {dayjs(evt.date).format("M/D")}
+                    </span>
+                  </button>
                 ))}
               </div>
             </div>
+          );
+        })()}
+      </div>
+
+      {/* FAB — 新增事件（管理模式下用 amber 色） */}
+      <AnimatePresence>
+        <motion.button
+          key={isAdminMode ? "admin-fab" : "user-fab"}
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 20 }}
+          onClick={() => openAddDialog()}
+          className={`fixed bottom-24 right-5 z-20 w-12 h-12 flex items-center justify-center rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-shadow ${
+            isAdminMode
+              ? "bg-amber-500 text-white"
+              : "bg-foreground text-background"
+          }`}
+          aria-label={isAdminMode ? "新增學校事件" : "新增私人事件"}
+        >
+          <Plus size={22} strokeWidth={2} />
+        </motion.button>
+      </AnimatePresence>
+
+      {/* 新增/編輯事件 Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="w-[95vw] max-w-[420px] rounded-sm p-0 gap-0">
+          <DialogHeader className="px-5 pt-5 pb-3">
+            <DialogTitle className="font-serif text-lg text-foreground">
+              {editingEvent ? "編輯事件" : isAdminMode ? "新增學校事件" : "新增私人事件"}
+            </DialogTitle>
+            {isAdminMode && !editingEvent?.isPrivate && (
+              <DialogDescription className="text-[11px] text-amber-600 font-light">
+                此事件將公開給所有使用者
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          <div className="px-5 py-4 space-y-4 border-t border-dashed border-border max-h-[60vh] overflow-y-auto">
+            {/* 標題 */}
+            <div>
+              <label className="text-xs text-muted-foreground font-light mb-1 block">標題 *</label>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="輸入事件標題"
+                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+
+            {/* 分類 */}
+            <div>
+              <label className="text-xs text-muted-foreground font-light mb-1.5 block">分類</label>
+              <div className="flex flex-wrap gap-1.5">
+                {(isAdminMode && !editingEvent?.isPrivate
+                  ? (["考試", "升學", "活動", "放假", "社團", "其他"] as PrivateEventCategory[])
+                  : ALL_CATEGORIES
+                ).map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setNewCategory(cat)}
+                    className={`px-2.5 py-1 text-[11px] rounded-sm border transition-all ${
+                      newCategory === cat
+                        ? "bg-foreground text-background border-foreground font-medium"
+                        : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 管理模式：對象人群 */}
+            {isAdminMode && !editingEvent?.isPrivate && (
+              <div>
+                <label className="text-xs text-muted-foreground font-light mb-1.5 block">對象</label>
+                <div className="flex gap-1.5">
+                  {["全校", "高一", "高二", "高三"].map((aud) => (
+                    <button
+                      key={aud}
+                      onClick={() => setNewTargetAudience(aud)}
+                      className={`px-2.5 py-1 text-[11px] rounded-sm border transition-all ${
+                        newTargetAudience === aud
+                          ? "bg-foreground text-background border-foreground font-medium"
+                          : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
+                      }`}
+                    >
+                      {aud}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 日期 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground font-light mb-1 block">開始日期 *</label>
+                <input
+                  type="date"
+                  value={newDate}
+                  onChange={(e) => setNewDate(e.target.value)}
+                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground font-light mb-1 block">結束日期</label>
+                <input
+                  type="date"
+                  value={newEndDate}
+                  onChange={(e) => setNewEndDate(e.target.value)}
+                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            {/* 時間 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground font-light mb-1 block">開始時間</label>
+                <input
+                  type="time"
+                  value={newStartTime}
+                  onChange={(e) => setNewStartTime(e.target.value)}
+                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground font-light mb-1 block">結束時間</label>
+                <input
+                  type="time"
+                  value={newEndTime}
+                  onChange={(e) => setNewEndTime(e.target.value)}
+                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            {/* 描述 */}
+            <div>
+              <label className="text-xs text-muted-foreground font-light mb-1 block">備註</label>
+              <textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                placeholder="選填"
+                rows={2}
+                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+            </div>
           </div>
-          <DialogFooter className="mt-3">
+
+          <DialogFooter className="px-5 py-3 border-t border-border flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setShowAddDialog(false); setEditingEvent(null); }}
+              className="flex-1 rounded-sm"
+            >
+              取消
+            </Button>
             <Button
               onClick={handleSaveEvent}
-              disabled={!formDate.trim() || !formTitle.trim()}
-              className="w-full rounded-sm"
-              size="sm"
+              disabled={!newTitle.trim() || !newDate || isSaving}
+              className={`flex-1 rounded-sm ${
+                isAdminMode && !editingEvent?.isPrivate ? "bg-amber-500 hover:bg-amber-600" : ""
+              }`}
             >
-              {editingEvent ? "更新事件" : "新增事件"}
+              {isSaving ? "儲存中..." : editingEvent ? "儲存" : "新增"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
 
-// --- School Timeline (read-only) ---
-function SchoolTimeline({ events }: { events: SchoolCalendarEvent[] }) {
-  if (events.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/40">
-        <p className="text-sm font-light">目前沒有行事曆資料</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <div className="absolute left-[1.9rem] top-2 bottom-2 w-px border-l border-dashed border-border/60" />
-      <div className="space-y-0">
-        {events.map((event) => (
-          <div key={event.id} className="flex gap-4 relative group">
-            <div className="w-14 flex-shrink-0 flex flex-col items-center pt-3 relative z-10">
-              <span className="text-lg font-serif font-semibold text-foreground leading-tight">
-                {event.date.split("/")[1]}
-              </span>
-              <span className="text-[10px] text-muted-foreground/50 font-light">
-                {event.date.split("/")[0]}月
-              </span>
-              <span className="text-[10px] text-muted-foreground/40 font-light">
-                ({event.weekday})
-              </span>
-              {/*<div className="absolute left-[1.15rem] top-5 w-1.5 h-1.5 rounded-full bg-border ring-2 ring-background" />*/}
-            </div>
-            <div className={`flex-1 ${event.color} border border-border/40 rounded-sm px-4 py-3 my-1.5 transition-shadow hover:shadow-sm`}>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-medium text-foreground">{event.title}</h3>
-                  <p className="text-xs text-muted-foreground font-light mt-1 leading-relaxed">{event.description}</p>
-                </div>
-                <span className="text-[9px] text-muted-foreground/50 border border-border/40 px-1.5 py-0.5 rounded-sm font-light flex-shrink-0 mt-0.5">
-                  {event.tag}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="flex items-center gap-4 mt-4">
-        <div className="w-14 flex-shrink-0 flex justify-center">
-          <div className="w-2 h-0.5 bg-border/40 rounded-full" />
-        </div>
-        <p className="text-[10px] text-muted-foreground/30 font-light">
-          -- 由管理員維護，持續更新中 --
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// --- Private Timeline (editable) ---
-function PrivateTimeline({
-  events,
-  onEdit,
-  onDelete,
-  onAdd,
-}: {
-  events: PrivateCalendarEvent[];
-  onEdit: (e: PrivateCalendarEvent) => void;
-  onDelete: (id: string) => void;
-  onAdd: () => void;
-}) {
-  if (events.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/40">
-        <p className="text-sm font-light mb-3">還沒有任何私人事件</p>
-        <Button variant="outline" size="sm" className="rounded-sm bg-transparent" onClick={onAdd}>
-          <Plus size={14} className="mr-1" /> 新增第一個事件
-        </Button>
-      </div>
-    );
-  }
-
-  function formatPrivateDate(dateStr: string) {
-    try {
-      const d = new Date(dateStr);
-      const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-      return {
-        month: `${d.getMonth() + 1}月`,
-        day: `${d.getDate()}`,
-        weekday: weekdays[d.getDay()],
-      };
-    } catch {
-      return { month: "", day: dateStr, weekday: "" };
-    }
-  }
-
-  return (
-    <div className="relative">
-      <div className="absolute left-[1.9rem] top-2 bottom-2 w-px border-l border-dashed border-border/60" />
-      <div className="space-y-0">
-        {events.map((event) => {
-          const dateInfo = formatPrivateDate(event.date);
-          return (
-            <div key={event.id} className="flex gap-4 relative group">
-              <div className="w-14 flex-shrink-0 flex flex-col items-center pt-3 relative z-10">
-                <span className="text-lg font-serif font-semibold text-foreground leading-tight">{dateInfo.day}</span>
-                <span className="text-[10px] text-muted-foreground/50 font-light">{dateInfo.month}</span>
-                <span className="text-[10px] text-muted-foreground/40 font-light">({dateInfo.weekday})</span>
-                {/*<div className="absolute left-[1.15rem] top-5 w-1.5 h-1.5 rounded-full bg-border ring-2 ring-background" />*/}
-              </div>
-              <div className={`flex-1 ${getColorClass(event.color)} border border-border/40 rounded-sm px-4 py-3 my-1.5 transition-shadow hover:shadow-sm`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-foreground">{event.title}</h3>
-                    {event.description && (
-                      <p className="text-xs text-muted-foreground font-light mt-1 leading-relaxed">{event.description}</p>
-                    )}
-                  </div>
-                  {/* Edit / Delete */}
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                    <button
-                      onClick={() => onEdit(event)}
-                      className="p-1 text-muted-foreground/50 hover:text-foreground transition-colors"
-                      aria-label="編輯事件"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(event.id)}
-                      className="p-1 text-muted-foreground/50 hover:text-destructive transition-colors"
-                      aria-label="刪除事件"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-4 mt-4">
-        <div className="w-14 flex-shrink-0 flex justify-center">
-          <div className="w-2 h-0.5 bg-border/40 rounded-full" />
-        </div>
-        <p className="text-[10px] text-muted-foreground/30 font-light">
-          -- 私人行事曆，僅自己可見 --
-        </p>
-      </div>
+      {/* A端：管理員授權彈窗 */}
+      <AdminAuthModal
+        open={showAuthModal}
+        onOpenChange={setShowAuthModal}
+        deviceId={deviceId}
+      />
     </div>
   );
 }
