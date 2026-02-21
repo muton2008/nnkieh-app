@@ -46,18 +46,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "缺少 event 資料" }, { status: 400 });
     }
 
+    // 判斷 ID 是否為前端生成的臨時 ID (如 school_123)
+    const eventId = String(event.id || "");
+    const isTempId = eventId.startsWith("school_") || eventId.startsWith("priv_") || !event.id;
+
     const supabase = await createClient();
 
-    // Upsert：有 id 就更新，沒 id 就新增
+    // Upsert：若為臨時 ID 則不傳入 id 欄位，由 DB 自動生成 UUID；否則編輯舊有 ID
     const { data, error } = await supabase
       .from("school_calendar_events")
       .upsert({
+        ...(isTempId ? {} : { id: event.id }),
         date: event.date,
         end_date: event.end_date || null,
         start_time: event.start_time || null,
         end_time: event.end_time || null,
         title: event.title,
         description: event.description || null,
+        category: event.category || "其他",
         updated_at: new Date().toISOString(),
         updated_by: payload.deviceId,
         is_deleted: false,
