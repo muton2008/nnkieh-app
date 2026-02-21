@@ -52,11 +52,12 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("school_calendar_events")
       .upsert({
-        id: event.id || undefined,
         date: event.date,
-        end_date: event.end_date,
+        end_date: event.end_date || null,
+        start_time: event.start_time || null,
+        end_time: event.end_time || null,
         title: event.title,
-        description: event.description,
+        description: event.description || null,
         updated_at: new Date().toISOString(),
         updated_by: payload.deviceId,
         is_deleted: false,
