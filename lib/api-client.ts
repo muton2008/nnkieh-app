@@ -56,7 +56,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  if (!res.ok) throw new Error(`API Error: ${res.status}`);
+  if (!res.ok) {
+    // 讀取伺服器錯誤訊息，方便除錯
+    let serverMessage = "";
+    try {
+      const body = await res.json();
+      serverMessage = body?.message || "";
+    } catch { /* ignore */ }
+    throw new Error(serverMessage || `API Error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -209,6 +217,7 @@ export async function saveSchoolEvent(
 ): Promise<SaveSchoolCalendarResponse> {
   const session = sessionOverride ?? getAdminSession();
   if (!session) throw new Error("無效的管理員授權");
+  if (!session.accessToken) throw new Error("授權憑證不存在，請重新進行雙人驗證");
 
   return request<SaveSchoolCalendarResponse>("/api/calendar/school/save", {
     method: "POST",

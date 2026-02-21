@@ -4,7 +4,17 @@ import { SignJWT } from "jose";
 
 export async function POST(request: Request) {
   try {
-    const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+    //  環境變數安全讀取 (修正部署環境報錯)
+    const secretFromEnv = process.env.JWT_SECRET;
+    
+    // 如果讀不到變數，直接在日誌報錯並返回，防止 zero-length key 崩潰
+    if (!secretFromEnv) {
+      console.error("[Config Error] 找不到 JWT_SECRET 環境變數，請確認 Vercel 設定並重新部署。");
+      return NextResponse.json({ message: "伺服器環境配置錯誤" }, { status: 500 });
+    }
+
+    const JWT_SECRET_ENCODED = new TextEncoder().encode(secretFromEnv);
+    console.log("JWT Secret 已加載，長度:", JWT_SECRET_ENCODED.length);
     const { requestId, inputCode, admin_device_id } = await request.json();
     const supabase = await createClient();
 
@@ -62,7 +72,7 @@ export async function POST(request: Request) {
       })
       .setProtectedHeader({ alg: "HS256" })
       .setExpirationTime("2h") 
-      .sign(JWT_SECRET);
+      .sign(JWT_SECRET_ENCODED);
 
     // 原子更新：僅當 status 仍為 pending 時才更新
     const { data: updated, error: updateError } = await supabase

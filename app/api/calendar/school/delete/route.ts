@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error("JWT_SECRET 未設定");
+  return new TextEncoder().encode(secret);
+}
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +15,7 @@ export async function POST(request: Request) {
     if (!token) return NextResponse.json({ success: false, message: "未授權" }, { status: 401 });
 
     // 驗證 JWT 並提取 admin 的 deviceId
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, getJwtSecret());
     const adminDeviceId = payload.deviceId as string;
 
     const { event_id } = await request.json();
