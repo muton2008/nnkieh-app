@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 import { SignJWT } from "jose";
 
 export async function POST(request: Request) {
+  console.log("=== START DIAG ===");
+  console.log("JWT_SECRET raw:", JSON.stringify(process.env.JWT_SECRET));
+  console.log("JWT_SECRET type:", typeof process.env.JWT_SECRET);
+  console.log("JWT_SECRET length:", process.env.JWT_SECRET?.length || 0);
+  console.log("=== END DIAG ===");
   try {
     console.log("start processing approve request");
     
