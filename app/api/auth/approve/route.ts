@@ -4,6 +4,7 @@ import { SignJWT } from "jose";
 
 export async function POST(request: Request) {
   try {
+    console.log("start processing approve request");
     // 環境變數讀取與安全檢查
     const secretFromEnv = process.env.JWT_SECRET;
     
