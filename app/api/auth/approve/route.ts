@@ -5,41 +5,42 @@ import { SignJWT } from "jose";
 export async function POST(request: Request) {
   try {
     console.log("start processing approve request");
-    // 環境變數讀取與安全檢查
+    
+    // 環境變數讀取
     const secretFromEnv = process.env.JWT_SECRET;
     
-    // 輸出日誌以便在 Vercel Logs 中排查 (不會印出真實金鑰)
+    // 診斷日誌：確認變數是否存在與長度
     console.log("[Approve API] Key status:", !!secretFromEnv);
     console.log("[Approve API] Key length:", secretFromEnv?.length || 0);
 
-    if (!secretFromEnv || secretFromEnv.trim().length === 0) {
-      console.error("[Config Error] JWT_SECRET is undefined or empty");
+    if (!secretFromEnv) {
+      console.error("[Config Error] JWT_SECRET is undefined");
       return NextResponse.json(
         { success: false, message: "伺服器環境配置錯誤" },
         { status: 500 }
       );
     }
 
-    // 金鑰解碼處理
-    // 針對你提供的 44 字元 Base64 金鑰 (含 / 與 =) 進行處理
+    //  金鑰解碼處理
     let jwtSecretKey: Uint8Array;
     try {
-      if (secretFromEnv.length === 44 && (secretFromEnv.includes("/") || secretFromEnv.endsWith("="))) {
-        jwtSecretKey = Buffer.from(secretFromEnv, "base64");
-      } else {
-        jwtSecretKey = new TextEncoder().encode(secretFromEnv);
-      }
+      jwtSecretKey = Buffer.from(secretFromEnv, "hex");
+      console.log("[Approve API] Byte length after hex decode:", jwtSecretKey.length);
     } catch (e) {
-      console.error("[Encoding Error] Failed to decode secret key");
+      console.error("[Encoding Error] Failed to decode hex secret key");
       return NextResponse.json(
-        { success: false, message: "金鑰解析失敗" },
+        { success: false, message: "金鑰十六進位解析失敗" },
         { status: 500 }
       );
     }
 
-    // 最終防撞檢查
-    if (!jwtSecretKey || jwtSecretKey.length === 0) {
-      throw new Error("Encoded secret key has zero length");
+    // 最終長度檢查，避免 jose 報 Zero-length key 錯誤
+    if (jwtSecretKey.length === 0) {
+      console.error("[Config Error] Decoded key is empty. Current raw value:", secretFromEnv);
+      return NextResponse.json(
+        { success: false, message: "解碼後的金鑰長度為 0" },
+        { status: 500 }
+      );
     }
 
     // 解析請求內容
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 衝突檢查
+    // 狀態檢查
     if (authReq.status !== "pending") {
       const statusMsg =
         authReq.status === "approved" || authReq.status === "completed"
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 驗證挑戰碼
+    // 6. 驗證挑戰碼
     if (authReq.visual_challenge.toString() !== inputCode.toString()) {
       return NextResponse.json(
         { success: false, message: "挑戰碼錯誤，請重新確認 A 螢幕上的數字" },
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 簽發 JWT 給 A (2 小時效期)
+    // 簽發 JWT
     const token = await new SignJWT({
       role: authReq.target_role || "admin",
       deviceId: authReq.requester_id,
