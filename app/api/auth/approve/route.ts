@@ -6,15 +6,13 @@ import jwt from "jsonwebtoken";
 
 export async function POST(request: Request) {
   console.log("=== START APPROVE API ===");
-
+  /*
   try {
     const secret = process.env.JWT_SECRET?.trim();
 
     // 診斷環境變數
     console.log("[Approve API] JWT_SECRET raw:", JSON.stringify(secret));
     console.log("[Approve API] JWT_SECRET length:", secret?.length || 0);
-
-    return // 這裡先檢查 JWT_SECRET 是否存在
 
     if (!secret) {
       console.error("[Config Error] JWT_SECRET 未定義或為空");
@@ -128,4 +126,5 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+    */
 }
