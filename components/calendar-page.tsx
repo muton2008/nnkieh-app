@@ -297,6 +297,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
 
   const handleSaveEvent = async () => {
     if (!newTitle.trim()) return;
+    console.log(session)
 
     // 管理模式：儲存/新增學校事件
     if (isAdminMode && (!editingEvent || !editingEvent.isPrivate)) {
