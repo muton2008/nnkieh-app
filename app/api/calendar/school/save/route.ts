@@ -5,7 +5,7 @@ import { jwtVerify } from "jose";
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("JWT_SECRET 未設定");
-  return new TextEncoder().encode(secret);
+  return Buffer.from(secret, 'base64');
 }
 
 export async function POST(request: Request) {
