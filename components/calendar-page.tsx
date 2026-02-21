@@ -316,7 +316,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           updated_by: session?.deviceId ?? "unknown",
         };
 
-        await saveSchoolEvent(schoolEvt);
+        await saveSchoolEvent(schoolEvt, session);
 
         // 更新本地狀態
         if (editingEvent) {

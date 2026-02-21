@@ -203,8 +203,11 @@ export async function fetchSchoolCalendar(start?: string, end?: string): Promise
 }
 
 /** [管理員] 儲存學校事件 */
-export async function saveSchoolEvent(event: SchoolCalendarEvent): Promise<SaveSchoolCalendarResponse> {
-  const session = getAdminSession();
+export async function saveSchoolEvent(
+  event: SchoolCalendarEvent,
+  sessionOverride?: AdminSession | null
+): Promise<SaveSchoolCalendarResponse> {
+  const session = sessionOverride ?? getAdminSession();
   if (!session) throw new Error("無效的管理員授權");
 
   return request<SaveSchoolCalendarResponse>("/api/calendar/school/save", {

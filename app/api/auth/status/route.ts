@@ -38,7 +38,7 @@ export async function GET(request: Request) {
       accessToken: data.session_token,
       role: data.target_role,
       deviceId: data.requester_id,
-      expiresAt: new Date(data.expires_at).getTime(),
+      expiresAt: Date.now() + 2 * 60 * 60 * 1000, // 2 小時（與 JWT 一致）
     };
 
     // 領取成功後，立即將資料庫狀態標記為已領取，避免 Token 外流
