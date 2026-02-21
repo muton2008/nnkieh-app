@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { SignJWT } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
-
 export async function POST(request: Request) {
   try {
+    const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET!);
     const { requestId, inputCode, admin_device_id } = await request.json();
     const supabase = await createClient();
 
