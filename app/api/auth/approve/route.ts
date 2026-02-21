@@ -2,45 +2,26 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { SignJWT } from "jose";
+import jwt from "jsonwebtoken";
 
 export async function POST(request: Request) {
-  console.log("=== START DIAG ===");
-  console.log("JWT_SECRET raw:", JSON.stringify(process.env.JWT_SECRET));
-  console.log("JWT_SECRET type:", typeof process.env.JWT_SECRET);
-  console.log("JWT_SECRET length:", process.env.JWT_SECRET?.length || 0);
-  console.log("=== END DIAG ===");
-  try {
-    console.log("start processing approve request");
-    
-    // 環境變數讀取
-    const secretFromEnv = process.env.JWT_SECRET;
-    
-    // 診斷日誌：確認變數是否存在與長度
-    console.log("[Approve API] Key status:", !!secretFromEnv);
-    console.log("[Approve API] Key length:", secretFromEnv?.length || 0);
+  console.log("=== START APPROVE API ===");
 
-    if (!secretFromEnv) {
-      console.error("[Config Error] JWT_SECRET is undefined");
+  try {
+    const secret = process.env.JWT_SECRET?.trim();
+
+    // 診斷環境變數
+    console.log("[Approve API] JWT_SECRET raw:", JSON.stringify(secret));
+    console.log("[Approve API] JWT_SECRET length:", secret?.length || 0);
+
+    if (!secret) {
+      console.error("[Config Error] JWT_SECRET 未定義或為空");
       return NextResponse.json(
         { success: false, message: "伺服器環境配置錯誤" },
         { status: 500 }
       );
     }
 
-    //  金鑰解碼處理
-    const jwtSecretKey = new TextEncoder().encode(secretFromEnv.trim());
-
-    // 最終長度檢查，避免 jose 報 Zero-length key 錯誤
-    if (jwtSecretKey.length === 0) {
-      console.error("[Config Error] Decoded key is empty. Current raw value:", secretFromEnv);
-      return NextResponse.json(
-        { success: false, message: "解碼後的金鑰長度為 0" },
-        { status: 500 }
-      );
-    }
-
-    // 解析請求內容
     const { requestId, inputCode, admin_device_id } = await request.json();
     const supabase = await createClient();
 
@@ -58,7 +39,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 取得並驗證授權請求
+    // 取得授權請求
     const { data: authReq, error: reqError } = await supabase
       .from("auth_requests")
       .select("*")
@@ -72,7 +53,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 狀態檢查
+    // 檢查狀態
     if (authReq.status !== "pending") {
       const statusMsg =
         authReq.status === "approved" || authReq.status === "completed"
@@ -94,7 +75,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. 驗證挑戰碼
+    // 驗證挑戰碼
     if (authReq.visual_challenge.toString() !== inputCode.toString()) {
       return NextResponse.json(
         { success: false, message: "挑戰碼錯誤，請重新確認 A 螢幕上的數字" },
@@ -103,13 +84,14 @@ export async function POST(request: Request) {
     }
 
     // 簽發 JWT
-    const token = await new SignJWT({
-      role: authReq.target_role || "admin",
-      deviceId: authReq.requester_id,
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setExpirationTime("2h")
-      .sign(jwtSecretKey);
+    const token = jwt.sign(
+      {
+        role: authReq.target_role || "admin",
+        deviceId: authReq.requester_id,
+      },
+      secret,
+      { algorithm: "HS256", expiresIn: "2h" }
+    );
 
     // 原子更新狀態
     const { data: updated, error: updateError } = await supabase
