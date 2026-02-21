@@ -27,6 +27,7 @@ export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
+  const [forceApproveOpen, setForceApproveOpen] = useState(false);
 
   // Device UUID identification
   useEffect(() => {
@@ -65,8 +66,13 @@ export default function Page() {
     return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
   }, []);
 
+  const handleOpenApproveDrawer = useCallback(() => {
+    setForceApproveOpen(true);
+  }, []);
+
   const handleCloseApproveDrawer = useCallback(() => {
     setAuthRequestId(null);
+    setForceApproveOpen(false);
     // 清除 URL 參數
     const url = new URL(window.location.href);
     url.searchParams.delete("auth_request_id");
@@ -85,7 +91,7 @@ export default function Page() {
       case "transport":
         return <TransportPage />;
       case "calendar":
-        return <CalendarPage deviceId={deviceId} />;
+        return <CalendarPage deviceId={deviceId} onOpenApproveDrawer={handleOpenApproveDrawer} />;
       case "news":
         return <NewsPage />;
       case "settings":
@@ -106,6 +112,7 @@ export default function Page() {
           <ApproveDrawer
             authRequestId={authRequestId}
             deviceId={deviceId}
+            forceOpen={forceApproveOpen}
             onClose={handleCloseApproveDrawer}
           />
         )}

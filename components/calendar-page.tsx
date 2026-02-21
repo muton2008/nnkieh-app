@@ -142,9 +142,11 @@ function generateId(): string {
 
 interface CalendarPageProps {
   deviceId: string;
+  /** 長按盾牌時呼叫 → 開啟 ApproveDrawer (B端核准) */
+  onOpenApproveDrawer?: () => void;
 }
 
-export function CalendarPage({ deviceId }: CalendarPageProps) {
+export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProps) {
   const { isAdminMode, session, disableAdminMode } = useAdmin();
   const [loading, setLoading] = useState(true);
   const [currentMonth, setCurrentMonth] = useState(dayjs());
@@ -166,8 +168,9 @@ export function CalendarPage({ deviceId }: CalendarPageProps) {
   const [newTargetAudience, setNewTargetAudience] = useState<string>("全校");
   const [isSaving, setIsSaving] = useState(false);
 
-  // 盾牌長按 (3 秒備援)
+  // 盾牌長按 (3 秒備援) — 相容手機觸控 + 桌面滑鼠
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
 
   // --- Data Loading ---
   useEffect(() => {
@@ -228,6 +231,11 @@ export function CalendarPage({ deviceId }: CalendarPageProps) {
 
   // 盾牌圖示：點擊 → 開啟 AuthModal；長按 3 秒 → 備援(目前也開啟 AuthModal)
   const handleShieldClick = () => {
+    // 長按已觸發時忽略隨後的 click 事件
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
     if (isAdminMode) {
       disableAdminMode();
       return;
@@ -235,18 +243,25 @@ export function CalendarPage({ deviceId }: CalendarPageProps) {
     setShowAuthModal(true);
   };
 
-  const handleShieldPointerDown = () => {
+  const startLongPress = () => {
+    longPressFired.current = false;
     longPressTimer.current = setTimeout(() => {
-      // 長按 3 秒：強制喚醒授權流程（備援入口）
-      setShowAuthModal(true);
+      longPressFired.current = true;
+      // 長按 3 秒：開啟 B 端核准抽屜（備援入口）
+      onOpenApproveDrawer?.();
     }, 3000);
   };
 
-  const handleShieldPointerUp = () => {
+  const cancelLongPress = () => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+  };
+
+  // 阻止手機長按觸發系統選單
+  const preventContextMenu = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
   };
 
   const resetForm = () => {
@@ -396,10 +411,14 @@ export function CalendarPage({ deviceId }: CalendarPageProps) {
           {/* 盾牌圖示：隱形入口 */}
           <button
             onClick={handleShieldClick}
-            onPointerDown={handleShieldPointerDown}
-            onPointerUp={handleShieldPointerUp}
-            onPointerLeave={handleShieldPointerUp}
-            className={`p-2 transition-colors ${
+            onTouchStart={startLongPress}
+            onTouchEnd={cancelLongPress}
+            onTouchCancel={cancelLongPress}
+            onMouseDown={startLongPress}
+            onMouseUp={cancelLongPress}
+            onMouseLeave={cancelLongPress}
+            onContextMenu={preventContextMenu}
+            className={`p-2 transition-colors select-none touch-none ${
               isAdminMode
                 ? "text-amber-500 hover:text-amber-600"
                 : "text-muted-foreground/20 hover:text-muted-foreground/40"
