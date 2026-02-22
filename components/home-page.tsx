@@ -12,6 +12,7 @@ import {
 import { SkeletonBlock } from "./skeleton-block";
 import type { TabId } from "@/lib/types/common";
 import type { UserProfile } from "@/lib/types/user";
+import type { SchoolCalendarEvent, EventCategory } from "@/lib/types/calendar";
 import { DEFAULT_USER_PROFILE } from "@/lib/types/user";
 import { getLocalUserProfile, saveLocalUserProfile, syncUserProfile } from "@/lib/api-client";
 import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
@@ -25,13 +26,6 @@ interface TodayScheduleItem {
   note: string;
 }
 
-interface UpcomingEvent {
-  id: number;
-  title: string;
-  date: string;
-  color: string;
-}
-
 // --- UI Constants ---
 const GREETING_MESSAGES = ["今天也要加油喔", "美好的一天開始了", "保持好心情吧", "專注每一刻"];
 const QUICK_LINKS: { id: TabId; label: string; icon: any; bg: string }[] = [
@@ -41,6 +35,24 @@ const QUICK_LINKS: { id: TabId; label: string; icon: any; bg: string }[] = [
   { id: "news", label: "公告", icon: Megaphone, bg: "bg-macaron-blue" },
 ];
 const PERIOD_TIMES = ["08:10", "09:10", "10:10", "11:10", "", "13:10", "14:10", "15:10", "16:20"];
+
+const CATEGORY_BG: Record<EventCategory, string> = {
+  考試: "bg-orange-50",
+  升學: "bg-red-50",
+  活動: "bg-green-50",
+  放假: "bg-sky-50",
+  社團: "bg-purple-50",
+  其他: "bg-gray-50",
+};
+
+const CATEGORY_DOT: Record<EventCategory, string> = {
+  考試: "bg-orange-400",
+  升學: "bg-red-500",
+  活動: "bg-green-500",
+  放假: "bg-sky-400",
+  社團: "bg-purple-500",
+  其他: "bg-gray-400",
+};
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -73,7 +85,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
   const [loading, setLoading] = useState(true);
   const [message] = useState(getRandomMessage);
   const [todaySchedule, setTodaySchedule] = useState<TodayScheduleItem[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<SchoolCalendarEvent[]>([]);
   const [profile, setProfile] = useState<UserProfile>({
     ...DEFAULT_USER_PROFILE,
     device_id: deviceId,
@@ -144,7 +156,12 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
         // 5. 載入行事曆
         const cData = await fetchSchoolCalendar();
         if (!cancelled && cData?.events) {
-          setUpcomingEvents(cData.events.slice(0, 3));
+          const today = new Date().toISOString().slice(0, 10);
+          const upcoming = cData.events
+            .filter((e: SchoolCalendarEvent) => !e.is_deleted && (e.end_date || e.date) >= today)
+            .sort((a: SchoolCalendarEvent, b: SchoolCalendarEvent) => a.date.localeCompare(b.date))
+            .slice(0, 3);
+          setUpcomingEvents(upcoming);
         }
 
         // 初始化用戶資料
@@ -287,15 +304,38 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
       </section>
 
       <section>
-        <h2 className="font-serif text-base font-semibold text-foreground mb-3">近期活動</h2>
-        <div className="space-y-2">
-          {upcomingEvents.map((event) => (
-            <div key={event.id} className={`${event.color} border border-border/50 rounded-sm px-4 py-3 flex items-center justify-between`}>
-              <span className="text-sm text-foreground">{event.title}</span>
-              <span className="text-xs text-muted-foreground font-light">{event.date}</span>
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-serif text-base font-semibold text-foreground">近期活動</h2>
+          <button onClick={() => onNavigate("calendar")} className="flex items-center gap-0.5 text-xs text-muted-foreground">
+            查看完整 <ChevronRight size={14} />
+          </button>
         </div>
+        {upcomingEvents.length === 0 ? (
+          <div className="bg-card border border-border rounded-sm px-4 py-6 text-center">
+            <p className="text-sm text-muted-foreground/50 font-light">近期沒有活動</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {upcomingEvents.map((event) => {
+              const bg = CATEGORY_BG[event.category] || "bg-gray-50";
+              const dot = CATEGORY_DOT[event.category] || "bg-gray-400";
+              const d = new Date(event.date);
+              const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
+              return (
+                <div
+                  key={event.id}
+                  className={`${bg} border border-border/50 rounded-sm px-4 py-3 flex items-center gap-3`}
+                >
+                  <span className={`flex-shrink-0 w-[6px] h-[6px] rounded-full ${dot}`} />
+                  <span className="flex-1 text-sm text-foreground truncate">{event.title}</span>
+                  <span className="text-xs text-muted-foreground font-light tabular-nums flex-shrink-0">
+                    {dateStr}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <footer className="pt-2 border-t border-dashed border-border">
