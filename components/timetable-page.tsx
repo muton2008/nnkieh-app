@@ -51,11 +51,11 @@ const WEEKDAYS = ["一", "二", "三", "四", "五"] as const;
 const WEEKDAY_FULL = ["週一", "週二", "週三", "週四", "週五"] as const;
 
 const PERIODS = [
-  { label: "1", time: "08:10 - 09:00" },
-  { label: "2", time: "09:10 - 10:00" },
-  { label: "3", time: "10:10 - 11:00" },
-  { label: "4", time: "11:10 - 12:00" },
-  { label: "午", time: "12:00 - 13:00" },
+  { label: "1", time: "08:05 - 08:55" },
+  { label: "2", time: "09:05 - 09:55" },
+  { label: "3", time: "10:15 - 11:05" },
+  { label: "4", time: "11:15 - 12:05" },
+  { label: "午", time: "12:05 - 13:00" },
   { label: "5", time: "13:10 - 14:00" },
   { label: "6", time: "14:10 - 15:00" },
   { label: "7", time: "15:10 - 16:00" },
@@ -949,14 +949,14 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
               />
             </div>
           </div>
-          <DialogFooter className="flex gap-2 mt-3">
-            <Button variant="outline" size="sm" className="flex-1 rounded-sm bg-transparent" onClick={clearEditCell}>
-              <Trash2 size={13} className="mr-1" /> 清除
+          <div className="flex flex-row gap-3 mt-4">
+            <Button variant="outline" className="flex-1 rounded-xl h-12 text-sm font-medium bg-background shadow-sm border-border/80 active:scale-[0.97] transition-all" onClick={clearEditCell}>
+              <Trash2 size={15} className="mr-1.5" /> 清除
             </Button>
-            <Button size="sm" className="flex-1 rounded-sm" onClick={saveEditCell}>
-              <Save size={13} className="mr-1" /> 儲存
+            <Button className="flex-1 rounded-xl h-12 text-sm font-medium shadow-md active:scale-[0.97] transition-all" onClick={saveEditCell}>
+              <Save size={15} className="mr-1.5" /> 儲存
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

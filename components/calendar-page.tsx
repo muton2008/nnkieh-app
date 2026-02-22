@@ -32,11 +32,20 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerFooter,
+} from "@/components/ui/drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
 import { useAdmin } from "./admin-context";
 import { AdminAuthModal } from "./admin-auth-modal";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import type {
   SchoolCalendarEvent,
@@ -145,6 +154,158 @@ function generateId(): string {
   return `priv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// --- Shared Form Fields (used in both Drawer & Dialog) ---
+
+interface EventFormFieldsProps {
+  isAdminMode: boolean;
+  editingEvent: CombinedEvent | null;
+  newTitle: string;
+  setNewTitle: (v: string) => void;
+  newCategory: PrivateEventCategory;
+  setNewCategory: (v: PrivateEventCategory) => void;
+  newTargetAudience: string;
+  setNewTargetAudience: (v: string) => void;
+  newDate: string;
+  setNewDate: (v: string) => void;
+  newEndDate: string;
+  setNewEndDate: (v: string) => void;
+  newStartTime: string;
+  setNewStartTime: (v: string) => void;
+  newEndTime: string;
+  setNewEndTime: (v: string) => void;
+  newDescription: string;
+  setNewDescription: (v: string) => void;
+}
+
+function EventFormFields({
+  isAdminMode, editingEvent,
+  newTitle, setNewTitle,
+  newCategory, setNewCategory,
+  newTargetAudience, setNewTargetAudience,
+  newDate, setNewDate,
+  newEndDate, setNewEndDate,
+  newStartTime, setNewStartTime,
+  newEndTime, setNewEndTime,
+  newDescription, setNewDescription,
+}: EventFormFieldsProps) {
+  return (
+    <>
+      {/* 標題 */}
+      <div>
+        <label className="text-xs text-muted-foreground font-light mb-1 block">標題 *</label>
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder="輸入事件標題"
+          className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
+      {/* 分類 */}
+      <div>
+        <label className="text-xs text-muted-foreground font-light mb-1.5 block">分類</label>
+        <div className="flex flex-wrap gap-1.5">
+          {(isAdminMode && !editingEvent?.isPrivate
+            ? (["考試", "升學", "活動", "放假", "社團", "其他"] as PrivateEventCategory[])
+            : ALL_CATEGORIES
+          ).map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setNewCategory(cat)}
+              className={`px-3 py-1.5 text-[11px] rounded-sm border transition-all min-h-[32px] ${
+                newCategory === cat
+                  ? "bg-foreground text-background border-foreground font-medium"
+                  : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20 active:bg-foreground/5"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 管理模式：對象人群 */}
+      {isAdminMode && !editingEvent?.isPrivate && (
+        <div>
+          <label className="text-xs text-muted-foreground font-light mb-1.5 block">對象</label>
+          <div className="flex gap-1.5">
+            {["全校", "高一", "高二", "高三"].map((aud) => (
+              <button
+                key={aud}
+                onClick={() => setNewTargetAudience(aud)}
+                className={`px-3 py-1.5 text-[11px] rounded-sm border transition-all min-h-[32px] ${
+                  newTargetAudience === aud
+                    ? "bg-foreground text-background border-foreground font-medium"
+                    : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20 active:bg-foreground/5"
+                }`}
+              >
+                {aud}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 日期 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-muted-foreground font-light mb-1 block">開始日期 *</label>
+          <input
+            type="date"
+            value={newDate}
+            onChange={(e) => setNewDate(e.target.value)}
+            className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-light mb-1 block">結束日期</label>
+          <input
+            type="date"
+            value={newEndDate}
+            onChange={(e) => setNewEndDate(e.target.value)}
+            className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+
+      {/* 時間 */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-muted-foreground font-light mb-1 block">開始時間</label>
+          <input
+            type="time"
+            value={newStartTime}
+            onChange={(e) => setNewStartTime(e.target.value)}
+            className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground font-light mb-1 block">結束時間</label>
+          <input
+            type="time"
+            value={newEndTime}
+            onChange={(e) => setNewEndTime(e.target.value)}
+            className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+
+      {/* 描述 */}
+      <div>
+        <label className="text-xs text-muted-foreground font-light mb-1 block">備註</label>
+        <textarea
+          value={newDescription}
+          onChange={(e) => setNewDescription(e.target.value)}
+          placeholder="選填"
+          rows={2}
+          className="w-full border border-border rounded-sm px-3 py-2.5 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+        />
+      </div>
+    </>
+  );
+}
+
 // --- Component ---
 
 interface CalendarPageProps {
@@ -155,6 +316,7 @@ interface CalendarPageProps {
 
 export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProps) {
   const { isAdminMode, session, disableAdminMode } = useAdmin();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [selectedDate, setSelectedDate] = useState(dayjs());
@@ -462,7 +624,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
       <div className="flex items-center justify-between px-5 py-3">
         <button
           onClick={goToPrevMonth}
-          className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground active:text-foreground transition-colors"
         >
           <ChevronLeft size={18} strokeWidth={1.5} />
         </button>
@@ -473,7 +635,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         </button>
         <button
           onClick={goToNextMonth}
-          className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground active:text-foreground transition-colors"
         >
           <ChevronRight size={18} strokeWidth={1.5} />
         </button>
@@ -537,7 +699,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
       </div>
 
       {/* Selected date event list */}
-      <div className="flex-1 overflow-y-auto px-5 pb-28">
+      <div className="flex-1 overflow-y-auto px-5 pb-[calc(7rem+env(safe-area-inset-bottom,0px))]">
         <div className="flex items-center gap-2 mb-3">
           <CalendarDays size={16} strokeWidth={1.5} className="text-muted-foreground" />
           <h3 className="font-serif text-sm font-semibold text-foreground">
@@ -557,11 +719,14 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
             {selectedDayEvents.map((evt) => (
               <div
                 key={evt.id}
-                className={`bg-card border border-border rounded-sm px-4 py-3 flex items-start gap-3 group ${
+                className={`bg-card border border-border rounded-sm px-4 py-3 flex items-start gap-3 group active:bg-foreground/[0.02] transition-colors ${
                   isAdminMode && !evt.isPrivate ? "cursor-pointer hover:border-amber-300" : ""
+                } ${
+                  evt.isPrivate ? "cursor-pointer hover:border-violet-300" : ""
                 }`}
                 onClick={() => {
                   if (isAdminMode && !evt.isPrivate) openEditDialog(evt);
+                  else if (evt.isPrivate) openEditDialog(evt);
                 }}
               >
                 <span
@@ -614,35 +779,44 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
                   </div>
                 </div>
                 {/* 操作按鈕 */}
-                <div className="flex flex-col gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all">
+                <div className="flex flex-col gap-1 flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                   {/* 管理模式下：公開事件可編輯/刪除 */}
                   {isAdminMode && !evt.isPrivate && (
                     <>
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditDialog(evt); }}
-                        className="p-1 text-muted-foreground/30 hover:text-amber-500"
+                        className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center text-muted-foreground/40 hover:text-amber-500 active:text-amber-600"
                         aria-label="編輯事件"
                       >
-                        <Pencil size={13} />
+                        <Pencil size={14} />
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt); }}
-                        className="p-1 text-muted-foreground/30 hover:text-red-500"
+                        className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center text-muted-foreground/40 hover:text-red-500 active:text-red-600"
                         aria-label="刪除事件"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={14} />
                       </button>
                     </>
                   )}
-                  {/* 私人事件可刪除 */}
+                  {/* 私人事件可編輯/刪除 */}
                   {evt.isPrivate && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt); }}
-                      className="p-1 text-muted-foreground/30 hover:text-red-500"
-                      aria-label="刪除事件"
-                    >
-                      <X size={14} />
-                    </button>
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openEditDialog(evt); }}
+                        className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center text-muted-foreground/40 hover:text-violet-500 active:text-violet-600"
+                        aria-label="編輯事件"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteEvent(evt); }}
+                        className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center text-muted-foreground/40 hover:text-red-500 active:text-red-600"
+                        aria-label="刪除事件"
+                      >
+                        <X size={14} />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -697,7 +871,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           exit={{ scale: 0, opacity: 0 }}
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
           onClick={() => openAddDialog()}
-          className={`fixed bottom-24 right-5 z-20 w-12 h-12 flex items-center justify-center rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-shadow ${
+          className={`fixed bottom-[calc(6rem+env(safe-area-inset-bottom,0px))] right-5 z-20 w-12 h-12 flex items-center justify-center rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-shadow ${
             isAdminMode
               ? "bg-amber-500 text-white"
               : "bg-foreground text-background"
@@ -708,155 +882,122 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         </motion.button>
       </AnimatePresence>
 
-      {/* 新增/編輯事件 Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="w-[95vw] max-w-[420px] rounded-sm p-0 gap-0">
-          <DialogHeader className="px-5 pt-5 pb-3">
-            <DialogTitle className="font-serif text-lg text-foreground">
-              {editingEvent ? "編輯事件" : isAdminMode ? "新增學校事件" : "新增私人事件"}
-            </DialogTitle>
-            {isAdminMode && !editingEvent?.isPrivate && (
-              <DialogDescription className="text-[11px] text-amber-600 font-light">
-                此事件將公開給所有使用者
-              </DialogDescription>
-            )}
-          </DialogHeader>
+      {/* 新增/編輯事件 — 手機用 Drawer（底部抽屜），桌面用 Dialog */}
+      {isMobile ? (
+        <Drawer open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DrawerContent className="rounded-t-xl">
+            <DrawerHeader className="px-5 pt-2 pb-3 text-left">
+              <DrawerTitle className="font-serif text-lg text-foreground">
+                {editingEvent ? "編輯事件" : isAdminMode ? "新增學校事件" : "新增私人事件"}
+              </DrawerTitle>
+              {isAdminMode && !editingEvent?.isPrivate && (
+                <DrawerDescription className="text-[11px] text-amber-600 font-light">
+                  此事件將公開給所有使用者
+                </DrawerDescription>
+              )}
+            </DrawerHeader>
 
-          <div className="px-5 py-4 space-y-4 border-t border-dashed border-border max-h-[60vh] overflow-y-auto">
-            {/* 標題 */}
-            <div>
-              <label className="text-xs text-muted-foreground font-light mb-1 block">標題 *</label>
-              <input
-                type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="輸入事件標題"
-                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring"
+            <div className="px-5 py-3 space-y-4 border-t border-dashed border-border max-h-[55vh] overflow-y-auto overscroll-contain">
+              <EventFormFields
+                isAdminMode={isAdminMode}
+                editingEvent={editingEvent}
+                newTitle={newTitle}
+                setNewTitle={setNewTitle}
+                newCategory={newCategory}
+                setNewCategory={setNewCategory}
+                newTargetAudience={newTargetAudience}
+                setNewTargetAudience={setNewTargetAudience}
+                newDate={newDate}
+                setNewDate={setNewDate}
+                newEndDate={newEndDate}
+                setNewEndDate={setNewEndDate}
+                newStartTime={newStartTime}
+                setNewStartTime={setNewStartTime}
+                newEndTime={newEndTime}
+                setNewEndTime={setNewEndTime}
+                newDescription={newDescription}
+                setNewDescription={setNewDescription}
               />
             </div>
 
-            {/* 分類 */}
-            <div>
-              <label className="text-xs text-muted-foreground font-light mb-1.5 block">分類</label>
-              <div className="flex flex-wrap gap-1.5">
-                {(isAdminMode && !editingEvent?.isPrivate
-                  ? (["考試", "升學", "活動", "放假", "社團", "其他"] as PrivateEventCategory[])
-                  : ALL_CATEGORIES
-                ).map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setNewCategory(cat)}
-                    className={`px-2.5 py-1 text-[11px] rounded-sm border transition-all ${
-                      newCategory === cat
-                        ? "bg-foreground text-background border-foreground font-medium"
-                        : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <DrawerFooter className="px-5 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] border-t border-border flex-row gap-2">
+              <Button
+                variant="outline"
+                onClick={() => { setShowAddDialog(false); setEditingEvent(null); }}
+                className="flex-1 rounded-sm h-11"
+              >
+                取消
+              </Button>
+              <Button
+                onClick={handleSaveEvent}
+                disabled={!newTitle.trim() || !newDate || isSaving}
+                className={`flex-1 rounded-sm h-11 ${
+                  isAdminMode && !editingEvent?.isPrivate ? "bg-amber-500 hover:bg-amber-600" : ""
+                }`}
+              >
+                {isSaving ? "儲存中..." : editingEvent ? "儲存" : "新增"}
+              </Button>
+            </DrawerFooter>
+          </DrawerContent>
+        </Drawer>
+      ) : (
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogContent className="w-[95vw] max-w-[420px] rounded-sm p-0 gap-0">
+            <DialogHeader className="px-5 pt-5 pb-3">
+              <DialogTitle className="font-serif text-lg text-foreground">
+                {editingEvent ? "編輯事件" : isAdminMode ? "新增學校事件" : "新增私人事件"}
+              </DialogTitle>
+              {isAdminMode && !editingEvent?.isPrivate && (
+                <DialogDescription className="text-[11px] text-amber-600 font-light">
+                  此事件將公開給所有使用者
+                </DialogDescription>
+              )}
+            </DialogHeader>
 
-            {/* 管理模式：對象人群 */}
-            {isAdminMode && !editingEvent?.isPrivate && (
-              <div>
-                <label className="text-xs text-muted-foreground font-light mb-1.5 block">對象</label>
-                <div className="flex gap-1.5">
-                  {["全校", "高一", "高二", "高三"].map((aud) => (
-                    <button
-                      key={aud}
-                      onClick={() => setNewTargetAudience(aud)}
-                      className={`px-2.5 py-1 text-[11px] rounded-sm border transition-all ${
-                        newTargetAudience === aud
-                          ? "bg-foreground text-background border-foreground font-medium"
-                          : "bg-card text-muted-foreground border-border font-light hover:border-foreground/20"
-                      }`}
-                    >
-                      {aud}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 日期 */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground font-light mb-1 block">開始日期 *</label>
-                <input
-                  type="date"
-                  value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground font-light mb-1 block">結束日期</label>
-                <input
-                  type="date"
-                  value={newEndDate}
-                  onChange={(e) => setNewEndDate(e.target.value)}
-                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            </div>
-
-            {/* 時間 */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground font-light mb-1 block">開始時間</label>
-                <input
-                  type="time"
-                  value={newStartTime}
-                  onChange={(e) => setNewStartTime(e.target.value)}
-                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground font-light mb-1 block">結束時間</label>
-                <input
-                  type="time"
-                  value={newEndTime}
-                  onChange={(e) => setNewEndTime(e.target.value)}
-                  className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            </div>
-
-            {/* 描述 */}
-            <div>
-              <label className="text-xs text-muted-foreground font-light mb-1 block">備註</label>
-              <textarea
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                placeholder="選填"
-                rows={2}
-                className="w-full border border-border rounded-sm px-3 py-2 text-sm text-foreground bg-card placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            <div className="px-5 py-4 space-y-4 border-t border-dashed border-border max-h-[60vh] overflow-y-auto">
+              <EventFormFields
+                isAdminMode={isAdminMode}
+                editingEvent={editingEvent}
+                newTitle={newTitle}
+                setNewTitle={setNewTitle}
+                newCategory={newCategory}
+                setNewCategory={setNewCategory}
+                newTargetAudience={newTargetAudience}
+                setNewTargetAudience={setNewTargetAudience}
+                newDate={newDate}
+                setNewDate={setNewDate}
+                newEndDate={newEndDate}
+                setNewEndDate={setNewEndDate}
+                newStartTime={newStartTime}
+                setNewStartTime={setNewStartTime}
+                newEndTime={newEndTime}
+                setNewEndTime={setNewEndTime}
+                newDescription={newDescription}
+                setNewDescription={setNewDescription}
               />
             </div>
-          </div>
 
-          <DialogFooter className="px-5 py-3 border-t border-border flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => { setShowAddDialog(false); setEditingEvent(null); }}
-              className="flex-1 rounded-sm"
-            >
-              取消
-            </Button>
-            <Button
-              onClick={handleSaveEvent}
-              disabled={!newTitle.trim() || !newDate || isSaving}
-              className={`flex-1 rounded-sm ${
-                isAdminMode && !editingEvent?.isPrivate ? "bg-amber-500 hover:bg-amber-600" : ""
-              }`}
-            >
-              {isSaving ? "儲存中..." : editingEvent ? "儲存" : "新增"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter className="px-5 py-3 border-t border-border flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => { setShowAddDialog(false); setEditingEvent(null); }}
+                className="flex-1 rounded-sm"
+              >
+                取消
+              </Button>
+              <Button
+                onClick={handleSaveEvent}
+                disabled={!newTitle.trim() || !newDate || isSaving}
+                className={`flex-1 rounded-sm ${
+                  isAdminMode && !editingEvent?.isPrivate ? "bg-amber-500 hover:bg-amber-600" : ""
+                }`}
+              >
+                {isSaving ? "儲存中..." : editingEvent ? "儲存" : "新增"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* A端：管理員授權彈窗 */}
       <AdminAuthModal
