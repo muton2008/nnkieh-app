@@ -17,8 +17,16 @@ import {
   SyncUserProfileRequest,
   SyncUserProfileResponse,
   GetUserProfileRequest,
-  GetUserProfileResponse
+  GetUserProfileResponse,
+  CreateAuthRequest,
+  CreateAuthResponse,
+  ApproveAuthRequest,
+  ApproveAuthResponse,
+  CheckAuthStatusResponse,
+  SaveSchoolCalendarRequest,
+  SaveSchoolCalendarResponse
 } from "@/lib/types/api";
+import { SchoolCalendarEvent, PrivateCalendarEvent, AdminSession } from "@/lib/types/calendar";
 import { APP_VERSION } from "./version";
 
 
@@ -48,7 +56,15 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
-  if (!res.ok) throw new Error(`API Error: ${res.status}`);
+  if (!res.ok) {
+    // 讀取伺服器錯誤訊息，方便除錯
+    let serverMessage = "";
+    try {
+      const body = await res.json();
+      serverMessage = body?.message || "";
+    } catch { /* ignore */ }
+    throw new Error(serverMessage || `API Error: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -136,22 +152,8 @@ export function saveLocalPrivateNotes(notes: PrivateNoteStore): void {
   localStorage.setItem("private_notes", JSON.stringify(notes));
 }
 // ============================================================
-// 3. 行事曆/公告 (目前維持精美 Mock)
+// 3. 公告 
 // ============================================================
-
-export async function fetchSchoolCalendar(): Promise<FetchSchoolCalendarResponse> {
-  await new Promise(r => setTimeout(r, 400));
-  return {
-    events: [
-      { id: 1, date: "3/3", weekday: "一", title: "開學典禮", description: "全校集合", tag: "全校", color: "bg-macaron-pink" },
-      { id: 3, date: "3/10", weekday: "一", title: "第一次段考", description: "範圍依公告", tag: "考試", color: "bg-macaron-yellow" }
-    ],
-    semester: "113學年度第二學期",
-    updated_at: new Date().toISOString(),
-  };
-}
-
-// --- 公告 ---
 
 export async function fetchAnnouncements(
   page = 1,
@@ -187,4 +189,113 @@ export function markAnnouncementAsRead(postId: number): void {
   const ids = getReadAnnouncementIds();
   ids.add(postId);
   localStorage.setItem("read_announcements", JSON.stringify([...ids]));
+}
+
+// ============================================================
+// 4. 行事曆 (Calendar)
+// ============================================================
+
+/** 取得全校行事曆 (帶快取) */
+export async function fetchSchoolCalendar(start?: string, end?: string): Promise<FetchSchoolCalendarResponse> {
+  const cacheKey = `cache_calendar_${start}_${end}`;
+  const cached = getCachedData<FetchSchoolCalendarResponse>(cacheKey);
+  if (cached?.fresh) return cached.data;
+
+  const params = new URLSearchParams();
+  if (start) params.append("start_date", start);
+  if (end) params.append("end_date", end);
+
+  const data = await request<FetchSchoolCalendarResponse>(`/api/calendar/school?${params.toString()}`);
+  setCachedData(cacheKey, data);
+  return data;
+}
+
+/** [管理員] 儲存學校事件 */
+export async function saveSchoolEvent(
+  event: SchoolCalendarEvent,
+  sessionOverride?: AdminSession | null
+): Promise<SaveSchoolCalendarResponse> {
+  const session = sessionOverride ?? getAdminSession();
+  console.log("🔐 嘗試儲存學校事件，使用 Session:", session);
+  if (!session) throw new Error("無效的管理員授權");
+  if (!session.accessToken) throw new Error("授權憑證不存在，請重新進行雙人驗證");
+
+  return request<SaveSchoolCalendarResponse>("/api/calendar/school/save", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId // 增加 Device ID 綁定校驗
+    },
+    body: JSON.stringify({ event }),
+  });
+}
+
+// --- 授權相關 (Auth) ---
+
+/** 取得存放在 SessionStorage 的授權資訊 */
+export function getAdminSession(): AdminSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = sessionStorage.getItem("admin_session");
+  if (!raw) return null;
+  const session = JSON.parse(raw) as AdminSession;
+  
+  // 檢查是否過期
+  if (Date.now() > session.expiresAt) {
+    sessionStorage.removeItem("admin_session");
+    return null;
+  }
+  return session;
+}
+
+/** 發起雙人授權請求 */
+export async function createPeerAuth(req: CreateAuthRequest): Promise<CreateAuthResponse> {
+  return request<CreateAuthResponse>("/api/auth/request", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+/** 審核授權請求 (授權端 Admin 用) */
+export async function approvePeerAuth(req: ApproveAuthRequest): Promise<ApproveAuthResponse> {
+  return request<ApproveAuthResponse>("/api/auth/approve", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+/** 輪詢或檢查授權狀態 (發起端 Editor 用) */
+export async function checkAuthStatus(requestId: string): Promise<CheckAuthStatusResponse> {
+  const res = await request<CheckAuthStatusResponse>(`/api/auth/status?request_id=${requestId}`);
+  
+  // 如果成功拿到 Session (JWT)，直接存入 sessionStorage
+  if (res.success && res.session) {
+    sessionStorage.setItem("admin_session", JSON.stringify(res.session));
+  }
+  return res;
+}
+
+// --- 私人事件 (LocalStorage) ---
+
+export function getLocalPrivateEvents(): PrivateCalendarEvent[] {
+  if (typeof window === "undefined") return [];
+  const raw = localStorage.getItem("private_calendar_events");
+  return raw ? JSON.parse(raw) : [];
+}
+
+export function saveLocalPrivateEvents(events: PrivateCalendarEvent[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("private_calendar_events", JSON.stringify(events));
+}
+
+// ============================================================
+// 5. 交通資訊 (Transport)
+// ============================================================
+
+export async function fetchTransportData(): Promise<TransportDataResponse> {
+  const cached = getCachedData<TransportDataResponse>("cache_transport");
+  if (cached?.fresh) return cached.data;
+
+  const data = await request<TransportDataResponse>("/api/transport");
+  setCachedData("cache_transport", data);
+  return data;
 }

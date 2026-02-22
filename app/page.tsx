@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { BottomNav } from "@/components/bottom-nav";
 import { TabId } from "@/lib/types/common";
 import { HomePage } from "@/components/home-page";
@@ -9,6 +9,8 @@ import { TransportPage } from "@/components/transport-page";
 import { CalendarPage } from "@/components/calendar-page";
 import { NewsPage } from "@/components/news-page";
 import { SettingsPage } from "@/components/settings-page";
+import { AdminProvider } from "@/components/admin-context";
+import { ApproveDrawer } from "@/components/approve-drawer";
 
 // UUID generation function
 function generateUUID(): string {
@@ -24,6 +26,8 @@ function generateUUID(): string {
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [authRequestId, setAuthRequestId] = useState<string | null>(null);
+  const [forceApproveOpen, setForceApproveOpen] = useState(false);
 
   // Device UUID identification
   useEffect(() => {
@@ -33,6 +37,46 @@ export default function Page() {
       localStorage.setItem("device_id", id);
     }
     setDeviceId(id);
+  }, []);
+
+  // 監聽 URL 參數 auth_request_id（來自 FCM 通知點擊）
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reqId = params.get("auth_request_id");
+    if (reqId) {
+      setAuthRequestId(reqId);
+      // 自動切換到行事曆分頁（讓管理員知道上下文）
+      setActiveTab("calendar");
+    }
+  }, []);
+
+  // 監聽 FCM 前景訊息（Service Worker message）
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (data?.type === "auth_request" && data?.auth_request_id) {
+        setAuthRequestId(data.auth_request_id);
+        setActiveTab("calendar");
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", handleMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
+  }, []);
+
+  const handleOpenApproveDrawer = useCallback(() => {
+    setForceApproveOpen(true);
+  }, []);
+
+  const handleCloseApproveDrawer = useCallback(() => {
+    setAuthRequestId(null);
+    setForceApproveOpen(false);
+    // 清除 URL 參數
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_request_id");
+    window.history.replaceState({}, "", url.toString());
   }, []);
 
   const renderPage = () => {
@@ -47,7 +91,7 @@ export default function Page() {
       case "transport":
         return <TransportPage />;
       case "calendar":
-        return <CalendarPage deviceId={deviceId} />;
+        return <CalendarPage deviceId={deviceId} onOpenApproveDrawer={handleOpenApproveDrawer} />;
       case "news":
         return <NewsPage />;
       case "settings":
@@ -58,9 +102,21 @@ export default function Page() {
   };
 
   return (
-    <main className="min-h-screen flex flex-col relative">
-      <div className="flex-1">{renderPage()}</div>
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
-    </main>
+    <AdminProvider>
+      <main className="min-h-screen flex flex-col relative">
+        <div className="flex-1">{renderPage()}</div>
+        <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+
+        {/* B端：全域核准抽屜（由 URL 參數或 FCM 訊息觸發） */}
+        {deviceId && (
+          <ApproveDrawer
+            authRequestId={authRequestId}
+            deviceId={deviceId}
+            forceOpen={forceApproveOpen}
+            onClose={handleCloseApproveDrawer}
+          />
+        )}
+      </main>
+    </AdminProvider>
   );
 }

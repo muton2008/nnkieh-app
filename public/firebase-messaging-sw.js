@@ -18,11 +18,52 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] 收到背景訊息 ', payload);
   
-  const notificationTitle = payload.notification.title;
+  const data = payload.data || {};
+  const notificationTitle = payload.notification?.title || '校園生活助手';
   const notificationOptions = {
-    body: payload.notification.body,
+    body: payload.notification?.body || '',
     icon: '/icon-192.png',
+    data: data, // 保留 data payload 供 notificationclick 使用
   };
 
+  // 如果是授權請求通知，帶上 auth_request_id
+  if (data.type === 'auth_request' && data.auth_request_id) {
+    notificationOptions.data = {
+      ...data,
+      url: `/?auth_request_id=${data.auth_request_id}`,
+    };
+  }
+
   self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// 點擊通知時，開啟對應頁面
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  const data = event.notification.data || {};
+  const targetUrl = data.url || data.link || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // 嘗試聚焦已開啟的視窗
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.focus();
+          // 發送訊息給前端，觸發 ApproveDrawer
+          if (data.type === 'auth_request') {
+            client.postMessage({
+              type: 'auth_request',
+              auth_request_id: data.auth_request_id,
+            });
+          }
+          return;
+        }
+      }
+      // 無已開啟視窗，開新視窗
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
 });
