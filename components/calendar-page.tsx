@@ -16,7 +16,14 @@ import {
   X,
   Pencil,
   Trash2,
+  KeyRound,
+  Send,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -168,9 +175,8 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
   const [newTargetAudience, setNewTargetAudience] = useState<string>("全校");
   const [isSaving, setIsSaving] = useState(false);
 
-  // 盾牌長按 (3 秒備援) — 相容手機觸控 + 桌面滑鼠
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressFired = useRef(false);
+  // 盾牌選單
+  const [showShieldMenu, setShowShieldMenu] = useState(false);
 
   // --- Data Loading ---
   useEffect(() => {
@@ -229,39 +235,15 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
     setSelectedDate(dayjs());
   };
 
-  // 盾牌圖示：點擊 → 開啟 AuthModal；長按 3 秒 → 備援(目前也開啟 AuthModal)
-  const handleShieldClick = () => {
-    // 長按已觸發時忽略隨後的 click 事件
-    if (longPressFired.current) {
-      longPressFired.current = false;
-      return;
-    }
-    if (isAdminMode) {
-      disableAdminMode();
-      return;
-    }
+  // 盾牌選單操作
+  const handleInitiateAuth = () => {
+    setShowShieldMenu(false);
     setShowAuthModal(true);
   };
 
-  const startLongPress = () => {
-    longPressFired.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      // 長按 3 秒：開啟 B 端核准抽屜（備援入口）
-      onOpenApproveDrawer?.();
-    }, 3000);
-  };
-
-  const cancelLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
-
-  // 阻止手機長按觸發系統選單
-  const preventContextMenu = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
+  const handleOpenApprove = () => {
+    setShowShieldMenu(false);
+    onOpenApproveDrawer?.();
   };
 
   const resetForm = () => {
@@ -297,7 +279,6 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
 
   const handleSaveEvent = async () => {
     if (!newTitle.trim()) return;
-    console.log(session)
 
     // 管理模式：儲存/新增學校事件
     if (isAdminMode && (!editingEvent || !editingEvent.isPrivate)) {
@@ -410,28 +391,46 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
             <p className="text-xs text-muted-foreground font-light mt-0.5">校園與個人行程</p>
           </div>
           {/* 盾牌圖示：隱形入口 */}
-          <button
-            onClick={handleShieldClick}
-            onTouchStart={startLongPress}
-            onTouchEnd={cancelLongPress}
-            onTouchCancel={cancelLongPress}
-            onMouseDown={startLongPress}
-            onMouseUp={cancelLongPress}
-            onMouseLeave={cancelLongPress}
-            onContextMenu={preventContextMenu}
-            className={`p-2 transition-colors select-none touch-none ${
-              isAdminMode
-                ? "text-amber-500 hover:text-amber-600"
-                : "text-muted-foreground/20 hover:text-muted-foreground/40"
-            }`}
-            aria-label={isAdminMode ? "退出管理模式" : "管理員授權"}
-          >
-            {isAdminMode ? (
+          {isAdminMode ? (
+            <button
+              onClick={disableAdminMode}
+              className="p-2 text-amber-500 hover:text-amber-600 transition-colors"
+              aria-label="退出管理模式"
+            >
               <Shield size={18} strokeWidth={1.5} className="fill-amber-100" />
-            ) : (
-              <Shield size={18} strokeWidth={1.5} />
-            )}
-          </button>
+            </button>
+          ) : (
+            <Popover open={showShieldMenu} onOpenChange={setShowShieldMenu}>
+              <PopoverTrigger asChild>
+                <button
+                  className="p-2 text-muted-foreground/20 hover:text-muted-foreground/40 transition-colors"
+                  aria-label="管理員授權"
+                >
+                  <Shield size={18} strokeWidth={1.5} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={4}
+                className="w-44 p-1.5 rounded-sm"
+              >
+                <button
+                  onClick={handleInitiateAuth}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-foreground rounded-sm hover:bg-foreground/5 transition-colors"
+                >
+                  <Send size={13} strokeWidth={1.5} className="text-muted-foreground" />
+                  <span className="font-light">發起授權請求</span>
+                </button>
+                <button
+                  onClick={handleOpenApprove}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-foreground rounded-sm hover:bg-foreground/5 transition-colors"
+                >
+                  <KeyRound size={13} strokeWidth={1.5} className="text-muted-foreground" />
+                  <span className="font-light">輸入挑戰碼</span>
+                </button>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {/* Admin mode banner */}
         <AnimatePresence>
