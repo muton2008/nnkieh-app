@@ -168,11 +168,34 @@ export interface ApproveAuthResponse {
 
 /** 管理員白名單操作 (Super Admin 專用) */
 export interface ManageAdminWhitelistRequest {
-  session_token: string;
-  action: 'add' | 'remove';
+  action: 'add' | 'remove' | 'update';
   target_device_id: string;
   target_name?: string;
   target_role?: AdminRole;
+}
+
+export interface ManageAdminWhitelistResponse {
+  success: boolean;
+  message?: string;
+}
+
+/** 取得管理員白名單 */
+export interface FetchAdminWhitelistResponse {
+  success: boolean;
+  admins: import('./calendar').AdminUser[];
+  currentRole: AdminRole;
+}
+
+/** 職位移交 (Super Admin 專用) */
+export interface HandoverRequest {
+  new_super_admin_id: string;
+}
+
+export interface HandoverResponse {
+  success: boolean;
+  message?: string;
+  oldRole?: string;
+  newSuperAdmin?: string;
 }
 
 // ============================================================

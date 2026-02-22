@@ -18,6 +18,8 @@ import {
   Trash2,
   KeyRound,
   Send,
+  Users,
+  LogOut,
 } from "lucide-react";
 import {
   Popover,
@@ -45,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { SkeletonBlock } from "./skeleton-block";
 import { useAdmin } from "./admin-context";
 import { AdminAuthModal } from "./admin-auth-modal";
+import { AdminWhitelistDrawer } from "./admin-whitelist-drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 import type {
@@ -339,6 +342,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
 
   // 盾牌選單
   const [showShieldMenu, setShowShieldMenu] = useState(false);
+  const [showWhitelistDrawer, setShowWhitelistDrawer] = useState(false);
 
   // --- Data Loading ---
   useEffect(() => {
@@ -554,13 +558,38 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           </div>
           {/* 盾牌圖示：隱形入口 */}
           {isAdminMode ? (
-            <button
-              onClick={disableAdminMode}
-              className="p-2 text-amber-500 hover:text-amber-600 transition-colors"
-              aria-label="退出管理模式"
-            >
-              <Shield size={18} strokeWidth={1.5} className="fill-amber-100" />
-            </button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="p-2 text-amber-500 hover:text-amber-600 transition-colors"
+                  aria-label="管理選項"
+                >
+                  <Shield size={18} strokeWidth={1.5} className="fill-amber-100" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={4}
+                className="w-44 p-1.5 rounded-sm"
+              >
+                {(session?.role === 'super_admin' || session?.role === 'admin') && (
+                  <button
+                    onClick={() => setShowWhitelistDrawer(true)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-foreground rounded-sm hover:bg-foreground/5 transition-colors"
+                  >
+                    <Users size={13} strokeWidth={1.5} className="text-muted-foreground" />
+                    <span className="font-light">管理白名單</span>
+                  </button>
+                )}
+                <button
+                  onClick={disableAdminMode}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-foreground rounded-sm hover:bg-foreground/5 transition-colors"
+                >
+                  <LogOut size={13} strokeWidth={1.5} className="text-muted-foreground" />
+                  <span className="font-light">退出管理模式</span>
+                </button>
+              </PopoverContent>
+            </Popover>
           ) : (
             <Popover open={showShieldMenu} onOpenChange={setShowShieldMenu}>
               <PopoverTrigger asChild>
@@ -1004,6 +1033,12 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         open={showAuthModal}
         onOpenChange={setShowAuthModal}
         deviceId={deviceId}
+      />
+
+      {/* 白名單管理 Drawer */}
+      <AdminWhitelistDrawer
+        open={showWhitelistDrawer}
+        onOpenChange={setShowWhitelistDrawer}
       />
     </div>
   );

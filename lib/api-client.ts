@@ -274,6 +274,53 @@ export async function checkAuthStatus(requestId: string): Promise<CheckAuthStatu
   return res;
 }
 
+// --- 管理員白名單 (Admin Whitelist) ---
+
+import type {
+  ManageAdminWhitelistRequest,
+  ManageAdminWhitelistResponse,
+  FetchAdminWhitelistResponse,
+  HandoverRequest,
+  HandoverResponse,
+} from "@/lib/types/api";
+
+/** 取得白名單列表 */
+export async function fetchAdminWhitelist(session: AdminSession): Promise<FetchAdminWhitelistResponse> {
+  return request<FetchAdminWhitelistResponse>("/api/admin/whitelist", {
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+  });
+}
+
+/** 新增 / 移除 / 更新白名單成員 */
+export async function manageAdminWhitelist(
+  session: AdminSession,
+  data: ManageAdminWhitelistRequest
+): Promise<ManageAdminWhitelistResponse> {
+  return request<ManageAdminWhitelistResponse>("/api/admin/whitelist", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+    body: JSON.stringify(data),
+  });
+}
+
+/** 職位移交（Super Admin → 新 Super Admin） */
+export async function handoverSuperAdmin(
+  session: AdminSession,
+  newSuperAdminId: string
+): Promise<HandoverResponse> {
+  return request<HandoverResponse>("/api/admin/handover", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+    body: JSON.stringify({ new_super_admin_id: newSuperAdminId } as HandoverRequest),
+  });
+}
+
 // --- 私人事件 (LocalStorage) ---
 
 export function getLocalPrivateEvents(): PrivateCalendarEvent[] {
