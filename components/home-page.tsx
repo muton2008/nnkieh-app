@@ -90,6 +90,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
     ...DEFAULT_USER_PROFILE,
     device_id: deviceId,
   });
+  const [profileReady, setProfileReady] = useState(false);
 
   // 輔助函式：將 API 回傳的原始 schedule 轉換成今日首頁顯示格式
   const processScheduleData = useCallback((scheduleObj: any) => {
@@ -120,6 +121,16 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
     const loadData = async () => {
       try {
+        // 0. 優先載入用戶 profile（必須在 setLoading(false) 之前，避免 FCM 刷新拿到 DEFAULT）
+        const storedProfile = getLocalUserProfile();
+        const initialProfile = storedProfile || {
+          device_id: deviceId,
+          division: "no disturb" as const,
+          notify_all: false,
+        };
+        setProfile(initialProfile);
+        setProfileReady(true);
+
         // 1. 先獲取 Local 緩存並立即顯示
         const cacheRaw = localStorage.getItem("cache_timetable");
         let initialSchedule: TodayScheduleItem[] = [];
@@ -164,15 +175,6 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
           setUpcomingEvents(upcoming);
         }
 
-        // 初始化用戶資料
-        const storedProfile = getLocalUserProfile();
-        const initialProfile = storedProfile || {
-          device_id: deviceId,
-          division: "no disturb" as const,
-          notify_all: false,
-        };
-        setProfile(initialProfile);
-        
         // 如果是新用戶，同步到伺服器
         if (!storedProfile) {
           try {
@@ -199,7 +201,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
   // 自動檢查和更新 FCM Token
   useEffect(() => {
-    if (loading || !profile.device_id) return;
+    if (loading || !profileReady || !profile.device_id) return;
 
     const refreshFCMToken = async () => {
       try {
@@ -219,7 +221,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
     };
 
     refreshFCMToken();
-  }, [loading, profile.device_id]);
+  }, [loading, profileReady, profile]);
 
   if (loading) {
     return (

@@ -36,6 +36,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   });
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [loading, setLoading] = useState(true);
+  const [profileReady, setProfileReady] = useState(false);
 
   // 進入頁面：先讀 Local，再從後端 fetch 最新
   useEffect(() => {
@@ -50,6 +51,8 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
       if (!cancelled) {
         setProfile(local);
         setLoading(false);
+        // 若 localStorage 有資料，視為可用
+        if (stored) setProfileReady(true);
       }
 
       // 2. 若有 device_id，從後端取得最新 profile
@@ -63,7 +66,12 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           }
         } catch (e) {
           console.error("[SettingsPage] fetch remote profile error:", e);
+        } finally {
+          // 無論成功或失敗，遠端請求完成後標記 ready
+          if (!cancelled) setProfileReady(true);
         }
+      } else {
+        if (!cancelled) setProfileReady(true);
       }
     };
 
@@ -72,7 +80,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   }, [deviceId]);
 
   const handleSync = useCallback(async () => {
-    if (syncStatus === "syncing") return;
+    if (syncStatus === "syncing" || !profileReady) return;
     setSyncStatus("syncing");
 
     try {
@@ -141,7 +149,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     }
 
     setTimeout(() => setSyncStatus("idle"), 2000);
-  }, [profile, syncStatus]);
+  }, [profile, syncStatus, profileReady]);
 
   const updateField = useCallback(
     <K extends keyof UserProfile>(field: K, value: UserProfile[K]) => {
@@ -255,7 +263,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         <Button
           onClick={handleSync}
           className="w-full rounded-sm"
-          disabled={syncStatus === "syncing"}
+          disabled={syncStatus === "syncing" || !profileReady}
         >
           {syncStatus === "syncing" ? (
             <span className="flex items-center gap-1.5">
@@ -267,6 +275,10 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
             </span>
           ) : syncStatus === "error" ? (
             "同步失敗，請再試一次"
+          ) : !profileReady ? (
+            <span className="flex items-center gap-1.5">
+              <RefreshCw size={14} className="animate-spin" /> 載入資料中...
+            </span>
           ) : (
             <span className="flex items-center gap-1.5">
               <RefreshCw size={14} /> 同步設定
