@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { track } from "@vercel/analytics";
 import { BottomNav } from "@/components/bottom-nav";
 import { TabId } from "@/lib/types/common";
 import { HomePage } from "@/components/home-page";
@@ -28,6 +29,7 @@ export default function Page() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
   const [forceApproveOpen, setForceApproveOpen] = useState(false);
+  const prevTabRef = useRef<TabId>(activeTab);
 
   // Device UUID identification
   useEffect(() => {
@@ -38,6 +40,19 @@ export default function Page() {
     }
     setDeviceId(id);
   }, []);
+  useEffect(() => {
+    if (!deviceId) return; // 等 deviceId 準備好再追蹤，數據會更精準
+
+    // 當分頁改變時，傳送自定義事件給 Vercel
+    track("Tab_Switch", {
+      from: prevTabRef.current,
+      to: activeTab,
+      deviceId: deviceId
+    });
+
+    // 更新 useRef
+    prevTabRef.current = activeTab;
+  }, [activeTab, deviceId]);
 
   // 監聽 URL 參數 auth_request_id（來自 FCM 通知點擊）
   useEffect(() => {
