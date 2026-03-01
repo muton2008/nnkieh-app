@@ -78,6 +78,10 @@
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
 .skeleton-shimmer {
   background: linear-gradient(90deg, hsl(30,15%,93%) 25%, hsl(30,15%,97%) 50%, hsl(30,15%,93%) 75%);
   background-size: 200% 100%;

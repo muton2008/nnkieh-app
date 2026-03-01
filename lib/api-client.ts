@@ -359,11 +359,14 @@ export function saveLocalPrivateEvents(events: PrivateCalendarEvent[]): void {
 // 5. 交通資訊 (Transport)
 // ============================================================
 
-export async function fetchTransportData(): Promise<TransportDataResponse> {
-  const cached = getCachedData<TransportDataResponse>("cache_transport");
-  if (cached?.fresh) return cached.data;
+export async function fetchTransportData(forceRefresh = false): Promise<TransportDataResponse> {
+  if (!forceRefresh) {
+    const cached = getCachedData<TransportDataResponse>("cache_transport");
+    if (cached?.fresh) return cached.data;
+  }
 
-  const data = await request<TransportDataResponse>("/api/transport");
+  // 加上時間戳防止 HTTP 層快取（CapacitorHttp / CDN / browser）
+  const data = await request<TransportDataResponse>(`/api/transport?_t=${Date.now()}`);
   setCachedData("cache_transport", data);
   return data;
 }

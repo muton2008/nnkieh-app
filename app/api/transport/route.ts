@@ -317,7 +317,9 @@ export async function GET() {
       STSP_buses: stspBus,
       youbike: youbike,
       updated_at: new Date().toISOString()
-    } as TransportDataResponse);
+    } as TransportDataResponse, {
+      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
+    });
   } catch (error) {
     console.error("Critical Transport API Error:", error);
     return NextResponse.json({ error: "Service unavailable" }, { status: 500 });

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import { TransportDataResponse } from "@/lib/types/api";
 import { fetchTransportData } from "@/lib/api-client";
 
-// --- MOCK DATA (CONSTANTS) ---
+const AUTO_REFRESH_INTERVAL = 60_000; // 60 秒自動刷新
+
 type TrainInfo = {
   id: string;
   type: string;
@@ -14,31 +15,6 @@ type TrainInfo = {
   departure: string;
   status: string;
 };
-
-const MOCK_TRAINS_SOUTH: TrainInfo[] = [
-  { id: "272", type: "區間", destination: "嘉義", departure: "17:23", status: "準點" },
-  { id: "174", type: "自強", destination: "高雄", departure: "17:45", status: "準點" },
-  { id: "276", type: "區間", destination: "新營", departure: "18:02", status: "晚 3 分" },
-];
-
-const MOCK_TRAINS_NORTH: TrainInfo[] = [
-  { id: "171", type: "自強", destination: "台北", departure: "17:15", status: "準點" },
-  { id: "273", type: "區間", destination: "台南", departure: "17:38", status: "準點" },
-  { id: "175", type: "自強", destination: "台中", departure: "18:10", status: "晚 5 分" },
-];
-
-const MOCK_BUSES = [
-  { route: "綠1", destination: "台南火車站", eta: "3 分鐘", status: "進站中" },
-  { route: "綠3", destination: "高鐵台南站", eta: "8 分鐘", status: "行駛中" },
-  { route: "紅2", destination: "善化轉運站", eta: "15 分鐘", status: "行駛中" },
-  { route: "橘12", destination: "新市火車站", eta: "22 分鐘", status: "行駛中" },
-];
-
-const MOCK_YOUBIKE = [
-  { name: "南科實中站", available: 8, empty: 12, total: 20 },
-  { name: "南科管理局站", available: 3, empty: 17, total: 20 },
-  { name: "南科站 (台鐵)", available: 12, empty: 8, total: 20 },
-];
 
 function TrainRow({ train }: { train: TrainInfo }) {
   return (
@@ -88,27 +64,50 @@ function BikeBar({ available, total }: { available: number; total: number }) {
 }
 
 export function TransportPage() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);         // 首次載入（顯示骨架屏）
+  const [refreshing, setRefreshing] = useState(false);   // 背景刷新中
   const [lastUpdate, setLastUpdate] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
   const [transportData, setTransportData] = useState<TransportDataResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const initFetch = useCallback(async () => {
+  /** 取得資料（forceRefresh = true 跳過客戶端快取） */
+  const doFetch = useCallback(async (isBackground: boolean) => {
+    if (!isBackground) setLoading(true);
+    else setRefreshing(true);
+    setError(null);
+
     try {
-      const data = await fetchTransportData();
+      // 永遠 forceRefresh，確保拿到最新資料
+      const data = await fetchTransportData(true);
       setTransportData(data);
       setLastUpdate(Date.now());
-    } catch (error) {
-      console.error("初始化載入失敗:", error);
+    } catch (err) {
+      console.error("交通資料載入失敗:", err);
+      // 背景刷新失敗不擋畫面，只在沒有任何資料時才顯示錯誤
+      if (!isBackground) {
+        setError("載入失敗，請檢查網路連線");
+      }
     } finally {
-      setLoading(false); // 無論成功失敗都結束 loading 狀態
+      if (!isBackground) setLoading(false);
+      else setRefreshing(false);
     }
   }, []);
 
+  // 首次載入 + 自動刷新
   useEffect(() => {
-    initFetch();
-  }, [initFetch]);
+    doFetch(false);
 
+    autoRefreshRef.current = setInterval(() => {
+      doFetch(true);
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
+  }, [doFetch]);
+
+  // 倒計時顯示
   const [secondsAgo, setSecondsAgo] = useState(0);
   useEffect(() => {
     if (!lastUpdate) return;
@@ -118,30 +117,27 @@ export function TransportPage() {
     return () => clearInterval(interval);
   }, [lastUpdate]);
 
+  /** 手動刷新（背景模式，不擋畫面） */
   const handleRefresh = useCallback(async () => {
-    if (refreshing) return; // 防止重複點擊
-    setRefreshing(true);
-    try {
-      const data = await fetchTransportData();
-      setTransportData(data);
-      setLastUpdate(Date.now());
-    } catch (error) {
-      alert("更新失敗，請檢查網路連線");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshing]);
+    if (refreshing || loading) return;
+    doFetch(true);
+  }, [refreshing, loading, doFetch]);
 
   return (
     <div className="flex flex-col h-full relative">
-      {/* 載入中遮罩 */}
-      {(loading || refreshing) && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm z-50 flex items-center justify-center">
+      {/* 背景刷新指示條 — 只在有資料時做背景刷新顯示 */}
+      {refreshing && (
+        <div className="absolute top-0 left-0 right-0 z-50 h-0.5 bg-foreground/5 overflow-hidden">
+          <div className="h-full w-1/3 bg-foreground/30 rounded-full animate-[progress-slide_1.2s_ease-in-out_infinite]" />
+        </div>
+      )}
+
+      {/* 首次載入全螢幕骨架屏 */}
+      {loading && !transportData && (
+        <div className="absolute inset-0 bg-background z-50 flex items-center justify-center">
           <div className="bg-background border border-border/50 rounded-lg px-6 py-4 shadow-lg flex items-center gap-3">
             <Loader2 size={20} className="animate-spin text-foreground/70" strokeWidth={2} />
-            <span className="text-sm font-medium text-foreground">
-              {loading ? "載入中..." : "更新中..."}
-            </span>
+            <span className="text-sm font-medium text-foreground">載入中...</span>
           </div>
         </div>
       )}
@@ -157,13 +153,19 @@ export function TransportPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground/50 font-light tabular-nums">
-            {loading ? "載入中" : `${secondsAgo} 秒前`}
-          </span>
+          {/* 更新狀態指示 */}
+          <div className="flex items-center gap-1.5">
+            {refreshing && (
+              <span className="text-[10px] text-foreground/50 font-light">更新中</span>
+            )}
+            <span className="text-[10px] text-muted-foreground/50 font-light tabular-nums">
+              {loading && !transportData ? "載入中" : `${secondsAgo} 秒前`}
+            </span>
+          </div>
           <button
             onClick={handleRefresh}
-            disabled={refreshing || loading}
-            className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+            disabled={refreshing || (loading && !transportData)}
+            className="p-2 -m-0.5 text-muted-foreground hover:text-foreground active:scale-90 transition-all disabled:opacity-30 rounded-full hover:bg-foreground/5"
             aria-label="重新整理"
           >
             <RefreshCw
@@ -177,7 +179,7 @@ export function TransportPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-5 pb-24 space-y-5">
-        {loading ? (
+        {loading && !transportData ? (
           <div className="space-y-5">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="space-y-2">
@@ -185,6 +187,16 @@ export function TransportPage() {
                 <SkeletonBlock className="h-28" />
               </div>
             ))}
+          </div>
+        ) : error && !transportData ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <button
+              onClick={() => doFetch(false)}
+              className="px-4 py-2 text-sm rounded-md bg-foreground/5 hover:bg-foreground/10 text-foreground transition-colors"
+            >
+              重試
+            </button>
           </div>
         ) : (
           <>
