@@ -62,6 +62,7 @@ import {
   getLocalPrivateEvents,
   saveLocalPrivateEvents,
   saveSchoolEvent,
+  deleteSchoolEvent,
 } from "@/lib/api-client";
 
 dayjs.extend(isBetween);
@@ -515,16 +516,8 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
     } else if (isAdminMode) {
       // 管理模式：刪除學校事件
       try {
-        const res = await fetch("/api/calendar/school/delete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session?.accessToken}`,
-            "X-Device-ID": session?.deviceId || "",
-          },
-          body: JSON.stringify({ event_id: evt.sourceId }),
-        });
-        if (res.ok) {
+        const res = await deleteSchoolEvent(evt.sourceId!, session);
+        if (res.success) {
           setSchoolEvents((prev) => prev.filter((e) => e.id !== evt.sourceId));
         }
       } catch (e) {

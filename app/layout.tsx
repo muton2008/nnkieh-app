@@ -4,6 +4,7 @@ import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { CapacitorInit } from "@/components/capacitor-init";
 
 const notoSans = Noto_Sans_TC({
   subsets: ["latin"],
@@ -35,6 +36,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: "cover",  // 支援 iOS 瀏海 / Dynamic Island
 };
 
 export default function RootLayout({
@@ -44,8 +46,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-TW" className={`${notoSans.variable} ${notoSerif.variable}`}>
-      <body className="font-sans antialiased desktop-shell min-h-screen">
+      <body className="font-sans antialiased desktop-shell min-h-screen safe-area-all">
       <ServiceWorkerRegister />
+      <CapacitorInit />
         <div className="mx-auto max-w-[450px] min-h-screen bg-background relative shadow-sm">
           {children}
         </div>

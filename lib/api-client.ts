@@ -28,6 +28,7 @@ import {
 } from "@/lib/types/api";
 import { SchoolCalendarEvent, PrivateCalendarEvent, AdminSession } from "@/lib/types/calendar";
 import { APP_VERSION } from "./version";
+import { getApiBaseUrl } from "./platform";
 
 
 // --- 設定與工具 ---
@@ -50,9 +51,11 @@ function setCachedData<T>(key: string, data: T): void {
   localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
 }
 
-/** 統一 Fetch 工具 */
+/** 統一 Fetch 工具（自動加上平台對應的 base URL） */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const baseUrl = getApiBaseUrl();
+  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+  const res = await fetch(fullUrl, {
     ...options,
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
@@ -227,6 +230,24 @@ export async function saveSchoolEvent(
       "X-Device-ID": session.deviceId // 增加 Device ID 綁定校驗
     },
     body: JSON.stringify({ event }),
+  });
+}
+
+/** [管理員] 刪除學校事件 */
+export async function deleteSchoolEvent(
+  eventId: string,
+  sessionOverride?: AdminSession | null
+): Promise<{ success: boolean }> {
+  const session = sessionOverride ?? getAdminSession();
+  if (!session) throw new Error("無效的管理員授權");
+
+  return request<{ success: boolean }>("/api/calendar/school/delete", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId,
+    },
+    body: JSON.stringify({ event_id: eventId }),
   });
 }
 

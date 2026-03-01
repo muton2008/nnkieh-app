@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import { TransportDataResponse } from "@/lib/types/api";
+import { fetchTransportData } from "@/lib/api-client";
 
 // --- MOCK DATA (CONSTANTS) ---
 type TrainInfo = {
@@ -38,16 +39,6 @@ const MOCK_YOUBIKE = [
   { name: "南科管理局站", available: 3, empty: 17, total: 20 },
   { name: "南科站 (台鐵)", available: 12, empty: 8, total: 20 },
 ];
-
-// Placeholder: API fetch functions
-// Should check if cache is older than 60 seconds before making API request
-const fetchTransportData = async () => {
-  const response = await fetch("/api/transport");
-  if (!response.ok) {
-    throw new Error("Failed to fetch transport data");
-  }
-  return response.json() as Promise<TransportDataResponse>;
-};
 
 function TrainRow({ train }: { train: TrainInfo }) {
   return (

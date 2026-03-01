@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAdmin } from "@/components/admin-context";
 import type { CheckAuthStatusResponse } from "@/lib/types/api";
+import { getApiBaseUrl } from "@/lib/platform";
 
 // --- Types ---
 
@@ -55,7 +56,8 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
     const initAuth = async () => {
       try {
-        const res = await fetch("/api/auth/request", {
+        const base = getApiBaseUrl();
+        const res = await fetch(`${base}/api/auth/request`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device_id: deviceId }),
@@ -95,7 +97,8 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
     const poll = async () => {
       try {
-        const res = await fetch(`/api/auth/status?request_id=${requestId}`);
+        const base = getApiBaseUrl();
+        const res = await fetch(`${base}/api/auth/status?request_id=${requestId}`);
         const data: CheckAuthStatusResponse = await res.json();
 
         if (abortRef.current) return;

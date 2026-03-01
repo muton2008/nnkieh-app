@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { track } from "@vercel/analytics";
 import { BottomNav } from "@/components/bottom-nav";
 import { TabId } from "@/lib/types/common";
 import { HomePage } from "@/components/home-page";
@@ -12,6 +11,7 @@ import { NewsPage } from "@/components/news-page";
 import { SettingsPage } from "@/components/settings-page";
 import { AdminProvider } from "@/components/admin-context";
 import { ApproveDrawer } from "@/components/approve-drawer";
+import { isNative, isPluginAvailable } from "@/lib/platform";
 
 // UUID generation function
 function generateUUID(): string {
@@ -43,12 +43,17 @@ export default function Page() {
   useEffect(() => {
     if (!deviceId) return; // 等 deviceId 準備好再追蹤，數據會更精準
 
-    // 當分頁改變時，傳送自定義事件給 Vercel
-    track("Tab_Switch", {
-      from: prevTabRef.current,
-      to: activeTab,
-      deviceId: deviceId
-    });
+    // 原生 App 不送 Vercel Analytics（不適用）
+    if (isNative()) return;
+
+    // 當分頁改變時，傳送自定義事件給 Vercel（僅 Web / PWA）
+    import("@vercel/analytics").then(({ track }) => {
+      track("Tab_Switch", {
+        from: prevTabRef.current,
+        to: activeTab,
+        deviceId: deviceId
+      });
+    }).catch(() => { /* ignore */ });
 
     // 更新 useRef
     prevTabRef.current = activeTab;
@@ -65,8 +70,44 @@ export default function Page() {
     }
   }, []);
 
-  // 監聽 FCM 前景訊息（Service Worker message）
+  // 監聯 FCM 前景訊息（Service Worker message）
   useEffect(() => {
+    // --- 原生 App：使用 Capacitor Push Notifications 監聽 ---
+    if (isNative() && isPluginAvailable('PushNotifications')) {
+      let cleanup: (() => void) | undefined;
+      import('@capacitor/push-notifications').then(({ PushNotifications }) => {
+        const listener = PushNotifications.addListener(
+          'pushNotificationReceived',
+          (notification) => {
+            const data = notification.data || {};
+            if (data.type === 'auth_request' && data.auth_request_id) {
+              setAuthRequestId(data.auth_request_id);
+              setActiveTab('calendar');
+            }
+          }
+        );
+        // 點擊推播通知
+        const actionListener = PushNotifications.addListener(
+          'pushNotificationActionPerformed',
+          (action) => {
+            const data = action.notification.data || {};
+            if (data.type === 'auth_request' && data.auth_request_id) {
+              setAuthRequestId(data.auth_request_id);
+              setActiveTab('calendar');
+            }
+          }
+        );
+        cleanup = () => {
+          listener.then(l => l.remove());
+          actionListener.then(l => l.remove());
+        };
+      }).catch((err) => {
+        console.error('原生推播 Listener 載入失敗:', err);
+      });
+      return () => cleanup?.();
+    }
+
+    // --- Web / PWA：走 Service Worker message ---
     if (!("serviceWorker" in navigator)) return;
 
     const handleMessage = (event: MessageEvent) => {
@@ -80,6 +121,23 @@ export default function Page() {
     navigator.serviceWorker.addEventListener("message", handleMessage);
     return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
   }, []);
+
+  // Android 實體返回鍵：回到首頁，若已在首頁則最小化
+  useEffect(() => {
+    if (!isNative() || !isPluginAvailable('App')) return;
+    let cleanup: (() => void) | undefined;
+    import('@capacitor/app').then(({ App }) => {
+      const listener = App.addListener('backButton', () => {
+        if (activeTab !== 'home') {
+          setActiveTab('home');
+        } else {
+          App.minimizeApp();
+        }
+      });
+      cleanup = () => { listener.then(l => l.remove()); };
+    });
+    return () => cleanup?.();
+  }, [activeTab]);
 
   const handleOpenApproveDrawer = useCallback(() => {
     setForceApproveOpen(true);

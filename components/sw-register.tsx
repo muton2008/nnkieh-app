@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
+import { isNative } from "@/lib/platform";
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
+    // 原生 App 不支援 Service Worker，跳過註冊
+    if (isNative()) return;
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/firebase-messaging-sw.js")

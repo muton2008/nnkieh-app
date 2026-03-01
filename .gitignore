@@ -8,6 +8,11 @@ instrumentation-client.ts
 # Common ignores
 node_modules/
 .next/
-.env*.local
+out/
 .DS_Store
 .env
+
+# Capacitor native projects
+android/
+ios/
+*.keystore

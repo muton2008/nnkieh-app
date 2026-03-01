@@ -17,6 +17,7 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
+import { getApiBaseUrl } from "@/lib/platform";
 
 // --- Types ---
 
@@ -98,7 +99,8 @@ export function ApproveDrawer({
     fetchedRef.current = true;
 
     try {
-      const res = await fetch(`/api/auth/pending?device_id=${deviceId}`);
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/api/auth/pending?device_id=${deviceId}`);
       const data = await res.json();
 
       if (data.success && data.requests && data.requests.length > 0) {
@@ -142,7 +144,8 @@ export function ApproveDrawer({
     setStep("submitting");
 
     try {
-      const res = await fetch("/api/auth/approve", {
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/api/auth/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

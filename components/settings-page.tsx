@@ -88,47 +88,56 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
 
       // --- 需要通知的情境 ---
       if (needsNotification) {
-        // 1. 檢查瀏覽器是否支援通知
-        if (typeof Notification === "undefined") {
-          alert("此瀏覽器不支援推播通知，通知設定將僅儲存在本機");
-          // 仍然同步其他設定（不帶 fcm_token）
-          await syncUserProfile(profile);
-          saveLocalUserProfile(profile);
-          setSyncStatus("synced");
-          setTimeout(() => setSyncStatus("idle"), 2000);
-          return;
+        // 原生 App：透過 Capacitor 原生推播，不走 Web Notification API
+        const isNativeApp = typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.();
+
+        if (!isNativeApp) {
+          // 1. 檢查瀏覽器是否支援通知
+          if (typeof Notification === "undefined") {
+            alert("此瀏覽器不支援推播通知，通知設定將僅儲存在本機");
+            // 仍然同步其他設定（不帶 fcm_token）
+            await syncUserProfile(profile);
+            saveLocalUserProfile(profile);
+            setSyncStatus("synced");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
+
+          // 2. 請求通知權限
+          const permission = await Notification.requestPermission();
+
+          if (permission === "denied") {
+            alert("通知權限已被封鎖。\n\n請到瀏覽器設定 → 網站權限 → 通知，將本站改為「允許」後再試。");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
+
+          if (permission === "default") {
+            // 使用者關閉了權限對話框（未選擇）
+            alert("需要允許通知權限才能接收推播，請再試一次並點選「允許」");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
         }
 
-        // 2. 請求通知權限
-        const permission = await Notification.requestPermission();
-
-        if (permission === "denied") {
-          alert("通知權限已被封鎖。\n\n請到瀏覽器設定 → 網站權限 → 通知，將本站改為「允許」後再試。");
-          setSyncStatus("error");
-          setTimeout(() => setSyncStatus("idle"), 2000);
-          return;
-        }
-
-        if (permission === "default") {
-          // 使用者關閉了權限對話框（未選擇）
-          alert("需要允許通知權限才能接收推播，請再試一次並點選「允許」");
-          setSyncStatus("error");
-          setTimeout(() => setSyncStatus("idle"), 2000);
-          return;
-        }
-
-        // 3. permission === "granted"，取得 FCM Token
+        // 3. 取得推播 Token（原生走 Capacitor，Web 走 FCM）
         const fcmToken = await getFCMToken();
 
-        if (!fcmToken) {
+        if (!fcmToken && !isNativeApp) {
+          // Web 上取不到 Token → 阻止同步
           alert("無法取得推播 Token，請確認網路連線或重新整理頁面後再試");
           setSyncStatus("error");
           setTimeout(() => setSyncStatus("idle"), 2000);
           return;
         }
 
-        // 4. 帶 FCM Token 同步
-        const updatedProfile = { ...profile, fcm_token: fcmToken };
+        // 4. 帶 FCM Token 同步（原生若取不到 token 仍會同步設定，只是不帶 token）
+        const updatedProfile = { ...profile, fcm_token: fcmToken || "" };
+        if (!fcmToken && isNativeApp) {
+          console.warn("原生推播 Token 取得失敗，已同步設定但未啟用推播（請確認 google-services.json 已設定）");
+        }
         await syncUserProfile(updatedProfile);
         setProfile(updatedProfile);
         saveLocalUserProfile(updatedProfile);
