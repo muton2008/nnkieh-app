@@ -65,6 +65,7 @@ import {
   deleteSchoolEvent,
 } from "@/lib/api-client";
 import { syncCalendarReminders } from "@/lib/reminders";
+import { syncExamWidgetData } from "@/lib/timetable-widget";
 
 dayjs.extend(isBetween);
 dayjs.locale("zh-tw");
@@ -358,6 +359,16 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         const res = await fetchSchoolCalendar();
         if (!cancelled && res?.events) {
           setSchoolEvents(res.events);
+          // 同步考試事件到桌面 Widget
+          const examEvents = res.events
+            .filter((e: SchoolCalendarEvent) => e.category === "考試")
+            .map((e: SchoolCalendarEvent) => ({
+              date: e.date,
+              end_date: e.end_date,
+              title: e.title,
+              description: e.description ?? undefined,
+            }));
+          syncExamWidgetData(examEvents);
         }
       } catch (e) {
         console.error("[CalendarPage] load error:", e);

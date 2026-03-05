@@ -55,7 +55,7 @@
         - **即時撤銷機制**：高權限者可一鍵刪除下屬 ID，利用 Supabase RLS 確保封鎖立即生效。
         - **職位移交 (Handover)**：新舊會長權限無縫接軌，自動執行角色變更，防止權限殘留。
 
-* [ ] **4.2 登入連動授權與連線機制 (Login Peer-to-Peer Auth)**
+* [x] **4.2 登入連動授權與連線機制 (Login Peer-to-Peer Auth)**
     * **後台進入流程**：
         - **定向請求廣播**：Editor 欲開啟後台時，發送 FCM 給對應上級；若 Super Admin 發起請求，則廣播給所有 Admin 進行審核。
         - **數字校驗 (Visual Challenge)**：授權人手機顯示隨機碼，編輯者須輸入相同號碼始可完成「解鎖」。
@@ -63,7 +63,7 @@
     * **編輯衝突防止 (Locking)**：
         - **實時鎖定狀態**：當某管理員已進入編輯模式，其他人開啟時透過 Realtime 提示「XX 正在編輯中」，防止覆蓋。
 
-* [ ] **4.3 行事曆後台 CMS 實作 (Admin Editorial Portal)**
+* [x] **4.3 行事曆後台 CMS 實作 (Admin Editorial Portal)**
     * **精細事件表單**：
         - 實作 6 大專屬分類：
             1. **考試** (開學/段考/模考/畢業考)
@@ -89,11 +89,11 @@
 ---
 
 ## 📱 任務五：原生打包與 Android 發佈
-* [ ] **5.1 Capacitor 初始化**
+* [x] **5.1 Capacitor 初始化**
     * **實作方法**：將專案轉換為 Capacitor 專案並加入 Android 平台。
-* [ ] **5.2 原生功能映射**
+* [x] **5.2 原生功能映射**
     * **實作細節**：配置 AndroidManifest.xml 設定網路、通知權限。
-* [ ] **5.3 APK 編譯與實機測試**
+* [x] **5.3 APK 編譯與實機測試**
 
 ---
 
@@ -105,7 +105,7 @@
     * **技術**：Firebase JS SDK, VAPID Key。
 * [ ] **6.2 Firebase FCM 推播整合 (Server-side)**
     * **實作細節**：串接 FCM HTTP v1 API。發送失敗時自動清理資料庫內的無效 Token。
-* [ ] **6.3 私人備註本地通知 (App 專屬)**
+* [x] **6.3 私人備註本地通知 (App 專屬)**
     * **實作方法**：打包後改用本地通知 API，解決 PWA 背景計時失效問題。
     * **技術**：`@capacitor/local-notifications`。
 * [ ] **6.4 通知點擊導航邏輯 (Deep Linking)**

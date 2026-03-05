@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Check, RefreshCw, Bell, BellOff } from "lucide-react";
+import { Check, RefreshCw, Bell, BellOff, Copy, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFCMToken } from "@/lib/firebase";
+import { toast } from "sonner";
 
 import {
   DEFAULT_USER_PROFILE,
@@ -17,6 +18,7 @@ import {
   fetchUserProfile,
 } from "@/lib/api-client";
 import { APP_VERSION } from "@/lib/version";
+import { CHANGELOG } from "@/lib/changelog";
 
 const DIVISION_OPTIONS: { value: SchoolDivision; label: string; desc: string }[] = [
   { value: "no disturb", label: "都不", desc: "不接收任何重要通知" },
@@ -37,6 +39,18 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [loading, setLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyDeviceId = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(deviceId);
+      setCopied(true);
+      toast.success("已複製 Device ID");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("複製失敗");
+    }
+  }, [deviceId]);
 
   // 進入頁面：先讀 Local，再從後端 fetch 最新
   useEffect(() => {
@@ -313,6 +327,23 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           </Button>
         </section>
 
+        {/* 更新內容 */}
+        <section className="bg-card border border-border rounded-sm p-4">
+          <h2 className="text-xs font-medium text-foreground mb-2">更新內容</h2>
+          <div className="text-[11px] text-muted-foreground/70 font-light space-y-3">
+            {CHANGELOG.map((entry) => (
+              <div key={entry.version}>
+                <p className="text-muted-foreground/50 font-medium mb-1">v{entry.version}</p>
+                <ul className="list-disc list-inside space-y-0.5 pl-0.5">
+                  {entry.changes.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* 診斷資訊 */}
         <section className="bg-card border border-border rounded-sm p-4">
           <h2 className="text-xs font-medium text-foreground mb-2">診斷資訊</h2>
@@ -321,12 +352,16 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
               <span>App 版本</span>
               <span className="text-muted-foreground/80">v{APP_VERSION}</span>
             </div>
-            <div className="flex justify-between">
+            <button
+              onClick={copyDeviceId}
+              className="flex justify-between w-full text-left hover:bg-muted/50 -mx-1 px-1 rounded transition-colors"
+            >
               <span>Device ID</span>
-              <span className="text-muted-foreground/80 text-[10px] break-all text-right max-w-[60%]">
+              <span className="flex items-center gap-1 text-muted-foreground/80 text-[10px] break-all text-right max-w-[60%]">
                 {deviceId}
+                {copied ? <ClipboardCheck size={10} className="shrink-0 text-green-500" /> : <Copy size={10} className="shrink-0" />}
               </span>
-            </div>
+            </button>
             <div className="flex justify-between">
               <span>最後同步</span>
               <span className="text-muted-foreground/80">

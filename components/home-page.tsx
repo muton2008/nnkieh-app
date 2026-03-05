@@ -19,11 +19,14 @@ import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
 import { getFCMToken } from "@/lib/firebase";
 
 // --- Types ---
+import type { NoteCategory } from "@/lib/types/timetable";
+
 interface TodayScheduleItem {
   period: number;
   subject: string;
   time: string;
   note: string;
+  noteCategory?: NoteCategory;
 }
 
 // --- UI Constants ---
@@ -112,6 +115,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
         subject: c.subject,
         time: PERIOD_TIMES[idx],
         note: validNotes.length > 0 ? validNotes[0].text : "",
+        noteCategory: validNotes.length > 0 ? validNotes[0].category : undefined,
       };
     }).filter(Boolean) as TodayScheduleItem[];
   }, []);
@@ -294,7 +298,14 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
                     第{item.period}節 &middot; {item.subject}
                   </span>
                   {item.note && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-sm border bg-amber-50 text-amber-700 border-amber-200">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-sm border font-light ${
+                      item.noteCategory === "exam" ? "bg-red-50 text-red-700 border-red-200" :
+                      item.noteCategory === "swap" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                      item.noteCategory === "homework" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                      item.noteCategory === "private" ? "bg-violet-50 text-violet-700 border-violet-200" :
+                      item.noteCategory === "other" ? "bg-green-50 text-green-700 border-green-200" :
+                      "bg-amber-50 text-amber-700 border-amber-200"
+                    }`}>
                       {item.note}
                     </span>
                   )}

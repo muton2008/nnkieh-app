@@ -3,15 +3,20 @@ import { getTDXToken } from '@/lib/tdx';
 import type { TrainInfo, DirectionInfo, BusInfo, STSPBusInfo, YouBikeData, YouBikeStation } from '@/lib/types/transport';
 import type { TransportDataResponse } from '@/lib/types/api';
 
+// Server-side in-memory cache
+const CACHE_TTL_MS = 60_000;
+let cachedResponse: TransportDataResponse | null = null;
+let cachedAt = 0;
+
 async function getTrain(headers: Record<string, string>): Promise<{ north: TrainInfo[]; south: TrainInfo[] }> {
   const url = "https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/LiveBoard/Station/4180";
   try {
     const res = await fetch(url, {
       headers,
-      next: { revalidate: 60 }
+      cache: 'no-store'
     });
     
-    if (!res.ok) throw new Error("TRA API Error");
+    if (!res.ok) throw new Error(`TRA API Error: ${res.status} ${res.statusText}`);
     
     const data = await res.json();
     
@@ -72,7 +77,7 @@ async function getBus(headers: Record<string, string>): Promise<BusInfo[]> {
 
     const url = `https://tdx.transportdata.tw/api/basic/v3/Bus/EstimatedTimeOfArrival/City/Tainan?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select)}&$format=JSON`;
 
-    const res = await fetch(url, { headers, next: { revalidate: 60 } });
+    const res = await fetch(url, { headers, cache: 'no-store' });
     const data = await res.json();
     const rawData = data.N1Datas || [];
     const routeMap = new Map<string, BusInfo>();
@@ -187,7 +192,7 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
           },
           body: JSON.stringify({ stopName: stopName, language: "ZH" }),
-          next: { revalidate: 60 },
+          cache: 'no-store',
           signal: controller.signal
         });
 
@@ -259,8 +264,8 @@ async function getYouBike(headers: Record<string, string>): Promise<YouBikeStati
     const stationIds = STATIONS.map(s => `StationID eq '${s.id}'`).join(' or ');
     const url = `https://tdx.transportdata.tw/api/basic/v2/Bike/Availability/City/Tainan?$filter=${encodeURIComponent(stationIds)}&$format=JSON`;
 
-    const res = await fetch(url, { headers, next: { revalidate: 60 } });
-    if (!res.ok) throw new Error("TDX YouBike API Error");
+    const res = await fetch(url, { headers, cache: 'no-store' });
+    if (!res.ok) throw new Error(`TDX YouBike API Error: ${res.status} ${res.statusText}`);
 
     const data: YouBikeData[] = await res.json();
     
@@ -292,6 +297,13 @@ async function getYouBike(headers: Record<string, string>): Promise<YouBikeStati
 }
 
 export async function GET() {
+  // 快取有效 → 直接回傳
+  if (cachedResponse && Date.now() - cachedAt < CACHE_TTL_MS) {
+    return NextResponse.json(cachedResponse, {
+      headers: { 'Cache-Control': 'no-store', 'X-Cache': 'HIT' }
+    });
+  }
+
   try {
     const tdxToken = await getTDXToken();
     const headers = {
@@ -310,15 +322,21 @@ export async function GET() {
     const stspBus = results[2].status === 'fulfilled' ? results[2].value : {};
     const youbike = results[3].status === 'fulfilled' ? results[3].value : [];
 
-    return NextResponse.json({
+    const responseData: TransportDataResponse = {
       trains_south: train.south,
       trains_north: train.north,
       buses: bus,
       STSP_buses: stspBus,
       youbike: youbike,
       updated_at: new Date().toISOString()
-    } as TransportDataResponse, {
-      headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
+    };
+
+    // 寫入記憶體快取
+    cachedResponse = responseData;
+    cachedAt = Date.now();
+
+    return NextResponse.json(responseData, {
+      headers: { 'Cache-Control': 'no-store', 'X-Cache': 'MISS' }
     });
   } catch (error) {
     console.error("Critical Transport API Error:", error);

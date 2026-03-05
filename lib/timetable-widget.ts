@@ -13,6 +13,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 interface TimetableWidgetPlugin {
   updateWidget(options: { schedule: string; className: string }): Promise<{ success: boolean }>;
   forceRefresh(): Promise<{ success: boolean }>;
+  updateExamWidget(options: { events: string }): Promise<{ success: boolean }>;
 }
 
 const TimetableWidget = registerPlugin<TimetableWidgetPlugin>('TimetableWidget');
@@ -54,5 +55,26 @@ export async function forceRefreshWidget(): Promise<void> {
     console.log('[TimetableWidget] Widget refreshed');
   } catch (error) {
     console.warn('[TimetableWidget] Failed to refresh widget:', error);
+  }
+}
+
+/**
+ * 將考試行事曆同步到考試倒數 Widget（僅在 Android 原生環境生效）
+ * @param events 考試類別的行事曆事件陣列
+ */
+export async function syncExamWidgetData(
+  events: Array<{ date: string; end_date?: string; title: string; description?: string }>
+): Promise<void> {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
+    return;
+  }
+
+  try {
+    await TimetableWidget.updateExamWidget({
+      events: JSON.stringify(events),
+    });
+    console.log('[TimetableWidget] Exam widget data synced');
+  } catch (error) {
+    console.warn('[TimetableWidget] Failed to sync exam widget:', error);
   }
 }

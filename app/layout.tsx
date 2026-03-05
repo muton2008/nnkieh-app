@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   title: "校園生活助手 | 南科實中",
   description:
     "南科實中校園生活助手 - 課表、交通、行事曆、公告一站掌握",
-  manifest: "/manifest.json",
+
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

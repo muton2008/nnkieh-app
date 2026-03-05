@@ -11,6 +11,7 @@ import { NewsPage } from "@/components/news-page";
 import { SettingsPage } from "@/components/settings-page";
 import { AdminProvider } from "@/components/admin-context";
 import { ApproveDrawer } from "@/components/approve-drawer";
+import { UpdateDialog } from "@/components/update-dialog";
 import { isNative, isPluginAvailable } from "@/lib/platform";
 
 // UUID generation function
@@ -179,6 +180,7 @@ export default function Page() {
       <main className="min-h-screen flex flex-col relative">
         <div className="flex-1">{renderPage()}</div>
         <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+        <UpdateDialog />
 
         {/* B端：全域核准抽屜（由 URL 參數或 FCM 訊息觸發） */}
         {deviceId && (
