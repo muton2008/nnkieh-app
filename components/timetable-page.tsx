@@ -44,7 +44,8 @@ import {
   saveLocalPrivateNotes,
   getLocalUserProfile,
 } from "@/lib/api-client";
-import { get } from "http";
+import { syncTimetableReminders } from "@/lib/reminders";
+import { syncWidgetData } from "@/lib/timetable-widget";
 
 // --- UI Constants ---
 const WEEKDAYS = ["一", "二", "三", "四", "五"] as const;
@@ -192,6 +193,9 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
                 setSchedule(res.schedule);
                 setClassName(res.class_name || "我的課表");
                 setDefaultRoom(res.default_room || "");
+
+                // 同步課表到桌面 Widget
+                syncWidgetData(res.schedule, res.class_name || "我的課表");
                 
                 // 更新本地快取，確保下次載入時快取就是這份新的
                 const updatedCache = {
@@ -225,6 +229,18 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- 同步課表提醒 (schedule 或 privateNotes 變化時自動比對) ---
+  useEffect(() => {
+    if (loading) return;
+    // 使用 debounce 避免頻繁觸發
+    const timer = setTimeout(() => {
+      syncTimetableReminders(schedule, privateNotes).catch((err) =>
+        console.error("[TimetablePage] syncTimetableReminders error:", err)
+      );
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [schedule, privateNotes, loading]);
+
   // --- Auto-save schedule changes ---
   const triggerAutoSave = useCallback(
     (newSchedule: WeekSchedule, newClassName: string, newDefaultRoom: string) => {
@@ -245,6 +261,9 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
           };
 
           localStorage.setItem("cache_timetable", JSON.stringify(payload));
+
+          // 同步課表到桌面 Widget
+          syncWidgetData(newSchedule, newClassName);
 
           console.log("inviteCode in triggerAutoSave:", inviteCode);
           if (inviteCode) {
@@ -515,6 +534,8 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         setSchedule(data.schedule);
         localStorage.setItem("invite_code", code);
         setInviteCode(code);
+        // 同步到桌面 Widget
+        syncWidgetData(data.schedule, res.class_name);
       }
     } finally {
       setJoining(false);

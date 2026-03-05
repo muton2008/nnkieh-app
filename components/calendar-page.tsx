@@ -64,6 +64,7 @@ import {
   saveSchoolEvent,
   deleteSchoolEvent,
 } from "@/lib/api-client";
+import { syncCalendarReminders } from "@/lib/reminders";
 
 dayjs.extend(isBetween);
 dayjs.locale("zh-tw");
@@ -369,6 +370,17 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
     return () => { cancelled = true; };
   }, []);
 
+  // --- 同步行事曆提醒 (schoolEvents 或 privateEvents 變化時自動比對) ---
+  useEffect(() => {
+    if (loading) return;
+    const timer = setTimeout(() => {
+      syncCalendarReminders(schoolEvents, privateEvents).catch((err) =>
+        console.error("[CalendarPage] syncCalendarReminders error:", err)
+      );
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [schoolEvents, privateEvents, loading]);
+
   // --- Combined Events ---
   const allEvents = useMemo(
     () => mergeEvents(schoolEvents, privateEvents),
@@ -454,9 +466,9 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         const schoolEvt: SchoolCalendarEvent = {
           id: editingEvent ? editingEvent.sourceId : `school_${Date.now()}`,
           date: newDate,
-          end_date: newEndDate || undefined,
-          start_time: newStartTime || undefined,
-          end_time: newEndTime || undefined,
+          end_date: newEndDate || newDate,
+          start_time: newStartTime || "00:00",
+          end_time: newEndTime || "23:59",
           title: newTitle.trim(),
           description: newDescription.trim() || null,
           category: newCategory as EventCategory,
@@ -486,9 +498,9 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
       const event: PrivateCalendarEvent = {
         id: editingEvent?.isPrivate ? editingEvent.sourceId : generateId(),
         date: newDate,
-        end_date: newEndDate || undefined,
-        start_time: newStartTime || undefined,
-        end_time: newEndTime || undefined,
+        end_date: newEndDate || newDate,
+        start_time: newStartTime || "00:00",
+        end_time: newEndTime || "23:59",
         title: newTitle.trim(),
         description: newDescription.trim() || null,
         category: newCategory,
