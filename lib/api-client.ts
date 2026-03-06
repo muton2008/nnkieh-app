@@ -136,6 +136,14 @@ export async function joinClass(req: JoinClassRequest): Promise<JoinClassRespons
   });
 }
 
+/** 建立者退出班級 — 從資料庫刪除該課表 */
+export async function leaveClass(req: { invite_code: string; device_id: string }): Promise<{ success: boolean; message?: string }> {
+  return request<{ success: boolean; message?: string }>("/api/class/leave", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
 /** 新增課表備註 */
 export async function addTimetableNote(req: AddNoteRequest): Promise<AddNoteResponse> {
   return request<AddNoteResponse>("/api/timetable/notes", {

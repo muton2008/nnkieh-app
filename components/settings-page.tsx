@@ -152,17 +152,19 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         if (!fcmToken && isNativeApp) {
           console.warn("原生推播 Token 取得失敗，已同步設定但未啟用推播（請確認 google-services.json 已設定）");
         }
-        await syncUserProfile(updatedProfile);
-        setProfile(updatedProfile);
-        saveLocalUserProfile(updatedProfile);
+        const res = await syncUserProfile(updatedProfile);
+        const synced = { ...updatedProfile, updated_at: res.updated_at || new Date().toISOString() };
+        setProfile(synced);
+        saveLocalUserProfile(synced);
         setSyncStatus("synced");
       } else {
         // --- 不需要通知的情境（division = "no disturb" 且 notify_all = false）---
         // 清除 fcm_token，同步設定到後端
         const updatedProfile = { ...profile, fcm_token: "" };
-        await syncUserProfile(updatedProfile);
-        setProfile(updatedProfile);
-        saveLocalUserProfile(updatedProfile);
+        const res = await syncUserProfile(updatedProfile);
+        const synced = { ...updatedProfile, updated_at: res.updated_at || new Date().toISOString() };
+        setProfile(synced);
+        saveLocalUserProfile(synced);
         setSyncStatus("synced");
       }
     } catch (error) {

@@ -7,11 +7,13 @@ const supabase = createClient();
 export async function GET(request: Request) {
   const { searchParams} = new URL(request.url);
   
-  const queryText = searchParams.get('q')?.trim().replace(/[<>]/g, "") || "";
+  const queryText = searchParams.get('q')?.trim()
+    .replace(/[<>,.()\\]/g, "")  // 移除 HTML 及 PostgREST 結構字元，防止 filter injection
+    .slice(0, 100) || "";        // 限制長度
   const page = parseInt(searchParams.get('page') || '1');
   const tab = searchParams.get('tab') || 'all';
   
-  const offset = parseInt(((page - 1) * 20).toString());
+  const offset = (page - 1) * 20;
   const size = 20;
   
   const from = offset;

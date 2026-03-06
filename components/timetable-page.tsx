@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, use } from "react";
 import {
   UserPlus,
+  LogOut,
   X,
   Share2,
   Copy,
@@ -38,6 +39,7 @@ import {
   fetchTimetable,
   saveTimetable,
   joinClass,
+  leaveClass,
   generateClassCode,
   addTimetableNote,
   getLocalPrivateNotes,
@@ -136,6 +138,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
 
   // Detail bottom sheet
   const [detailSheet, setDetailSheet] = useState<{ day: string; periodIdx: number } | null>(null);
@@ -348,6 +351,8 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       setPrivateNotes(store);
       setNewNoteText("");
       setIsSubmittingNote(false);
+      // 立即同步提醒
+      syncTimetableReminders(schedule, store).catch(console.error);
       return;
     }
 
@@ -371,11 +376,12 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
           const data = await fetchTimetable({ invite_code: inviteCode });
           setSchedule(data.schedule);
           setNewNoteText("");
+          // 立即同步提醒（使用最新的 schedule）
+          syncTimetableReminders(data.schedule, privateNotes).catch(console.error);
         }
         setIsSubmittingNote(false);
       } catch (error) {
         console.error("新增備註失敗:", error);
-        // 可以在這裡加入錯誤提示
         setIsSubmittingNote(false);
       }
     } else {
@@ -406,6 +412,8 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       // 觸發自動儲存到本地快取
       triggerAutoSave(newSchedule, className, defaultRoom);
       setIsSubmittingNote(false);
+      // 立即同步提醒（使用新的 schedule）
+      syncTimetableReminders(newSchedule, privateNotes).catch(console.error);
     }
   }, [detailSheet, newNoteText, newNoteCategory, privateNotes, inviteCode, schedule, className, defaultRoom, triggerAutoSave]);
 
@@ -544,6 +552,27 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
     }
   }, [joinCode]);
 
+  const handleLeaveClass = useCallback(async () => {
+    // 通知後端刪除課表（僅建立者會成功刪除）
+    if (inviteCode) {
+      try {
+        await leaveClass({ invite_code: inviteCode, device_id: deviceId });
+      } catch (e) {
+        console.error("[TimetablePage] leaveClass error:", e);
+      }
+    }
+    localStorage.removeItem("invite_code");
+    localStorage.removeItem("cache_timetable");
+    localStorage.removeItem("private_notes");
+    setInviteCode(null);
+    setSchedule({});
+    setClassName("我的課表");
+    setDefaultRoom("");
+    setPrivateNotes({});
+    setShowLeaveDialog(false);
+    syncWidgetData({}, "我的課表");
+  }, [inviteCode, deviceId]);
+
   // Load class code from localStorage
   useEffect(() => {
     const stored = localStorage.getItem("invite_code");
@@ -623,13 +652,23 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
           >
             <Share2 size={12} strokeWidth={1.5} />
           </button>
-          <button
-            onClick={() => setShowJoinDialog(true)}
-            className="flex items-center gap-1 px-2 py-1.5 border border-border rounded-sm text-xs text-foreground/70 hover:bg-secondary transition-colors"
-            aria-label="加入班級"
-          >
-            <UserPlus size={12} strokeWidth={1.5} />
-          </button>
+          {inviteCode ? (
+            <button
+              onClick={() => setShowLeaveDialog(true)}
+              className="flex items-center gap-1 px-2 py-1.5 border border-red-200 rounded-sm text-xs text-red-500 hover:bg-red-50 transition-colors"
+              aria-label="退出班級"
+            >
+              <LogOut size={12} strokeWidth={1.5} />
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowJoinDialog(true)}
+              className="flex items-center gap-1 px-2 py-1.5 border border-border rounded-sm text-xs text-foreground/70 hover:bg-secondary transition-colors"
+              aria-label="加入班級"
+            >
+              <UserPlus size={12} strokeWidth={1.5} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1052,6 +1091,26 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave class confirmation dialog */}
+      <Dialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
+        <DialogContent className="max-w-[340px] rounded-sm p-6">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-base">退出班級</DialogTitle>
+            <DialogDescription className="text-xs font-light">
+              如果你是創建者，退出後將清除課表及所有備註資料，此操作無法復原。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 mt-2">
+            <Button variant="outline" className="flex-1 rounded-sm" onClick={() => setShowLeaveDialog(false)}>
+              取消
+            </Button>
+            <Button variant="destructive" className="flex-1 rounded-sm" onClick={handleLeaveClass}>
+              確認退出
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

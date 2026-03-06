@@ -361,7 +361,7 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           setSchoolEvents(res.events);
           // 同步考試事件到桌面 Widget
           const examEvents = res.events
-            .filter((e: SchoolCalendarEvent) => e.category === "考試")
+            .filter((e: SchoolCalendarEvent) => !e.is_deleted && e.category === "考試")
             .map((e: SchoolCalendarEvent) => ({
               date: e.date,
               end_date: e.end_date,
@@ -388,6 +388,16 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
       syncCalendarReminders(schoolEvents, privateEvents).catch((err) =>
         console.error("[CalendarPage] syncCalendarReminders error:", err)
       );
+      // 同步考試倒數 Widget
+      const examEvents = schoolEvents
+        .filter((e) => !e.is_deleted && e.category === "考試")
+        .map((e) => ({
+          date: e.date,
+          end_date: e.end_date,
+          title: e.title,
+          description: e.description ?? undefined,
+        }));
+      syncExamWidgetData(examEvents);
     }, 2000);
     return () => clearTimeout(timer);
   }, [schoolEvents, privateEvents, loading]);

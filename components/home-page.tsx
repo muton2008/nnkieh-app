@@ -16,6 +16,7 @@ import type { SchoolCalendarEvent, EventCategory } from "@/lib/types/calendar";
 import { DEFAULT_USER_PROFILE } from "@/lib/types/user";
 import { getLocalUserProfile, saveLocalUserProfile, syncUserProfile } from "@/lib/api-client";
 import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
+import { syncExamWidgetData } from "@/lib/timetable-widget";
 import { getFCMToken } from "@/lib/firebase";
 
 // --- Types ---
@@ -177,6 +178,17 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
             .sort((a: SchoolCalendarEvent, b: SchoolCalendarEvent) => a.date.localeCompare(b.date))
             .slice(0, 3);
           setUpcomingEvents(upcoming);
+
+          // 同步考試事件到桌面 Widget
+          const examEvents = cData.events
+            .filter((e: SchoolCalendarEvent) => !e.is_deleted && e.category === "考試")
+            .map((e: SchoolCalendarEvent) => ({
+              date: e.date,
+              end_date: e.end_date,
+              title: e.title,
+              description: e.description ?? undefined,
+            }));
+          syncExamWidgetData(examEvents);
         }
 
         // 如果是新用戶，同步到伺服器
