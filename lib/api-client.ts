@@ -16,20 +16,31 @@ import {
   AddNoteResponse,
   SyncUserProfileRequest,
   SyncUserProfileResponse,
-  GetUserProfileRequest,
   GetUserProfileResponse,
-  CreateAuthRequest,
   CreateAuthResponse,
   ApproveAuthRequest,
   ApproveAuthResponse,
   CheckAuthStatusResponse,
-  SaveSchoolCalendarRequest,
+  FetchPendingRequestsResponse,
   SaveSchoolCalendarResponse
 } from "@/lib/types/api";
 import { SchoolCalendarEvent, PrivateCalendarEvent, AdminSession } from "@/lib/types/calendar";
 import { APP_VERSION } from "./version";
 import { getApiBaseUrl } from "./platform";
 
+// --- 自定義錯誤 ---
+
+/** 攜帶 HTTP 狀態碼的 API 錯誤 */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 // --- 設定與工具 ---
 
@@ -60,15 +71,32 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
   if (!res.ok) {
-    // 讀取伺服器錯誤訊息，方便除錯
-    let serverMessage = "";
-    try {
-      const body = await res.json();
-      serverMessage = body?.message || "";
-    } catch { /* ignore */ }
-    throw new Error(serverMessage || `API Error: ${res.status}`);
+    let body: Record<string, unknown> = {};
+    try { body = await res.json(); } catch { /* ignore */ }
+    const serverMessage = (body?.message as string) || "";
+
+    // 401：自動清除過期的 admin session
+    if (res.status === 401 && typeof window !== "undefined") {
+      sessionStorage.removeItem("admin_session");
+    }
+
+    throw new ApiError(
+      serverMessage || `API Error: ${res.status}`,
+      res.status,
+      body
+    );
   }
   return res.json();
+}
+
+/** 低階 Fetch — 回傳原始 Response，讓呼叫端自行處理狀態碼 */
+async function rawRequest(url: string, options?: RequestInit): Promise<Response> {
+  const baseUrl = getApiBaseUrl();
+  const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+  return fetch(fullUrl, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers },
+  });
 }
 
 // ============================================================
@@ -276,24 +304,36 @@ export function getAdminSession(): AdminSession | null {
 }
 
 /** 發起雙人授權請求 */
-export async function createPeerAuth(req: CreateAuthRequest): Promise<CreateAuthResponse> {
+export async function createPeerAuth(deviceId: string): Promise<CreateAuthResponse> {
   return request<CreateAuthResponse>("/api/auth/request", {
     method: "POST",
-    body: JSON.stringify(req),
+    body: JSON.stringify({ device_id: deviceId }),
   });
 }
 
-/** 審核授權請求 (授權端 Admin 用) */
-export async function approvePeerAuth(req: ApproveAuthRequest): Promise<ApproveAuthResponse> {
-  return request<ApproveAuthResponse>("/api/auth/approve", {
+/** 審核授權請求 (授權端 Admin 用)，需要分辨 400/409/423 所以用 rawRequest */
+export async function approvePeerAuth(
+  requestId: string,
+  inputCode: string,
+  adminDeviceId: string
+): Promise<ApproveAuthResponse & { status: number }> {
+  const req: ApproveAuthRequest = { requestId, inputCode, admin_device_id: adminDeviceId };
+  const res = await rawRequest("/api/auth/approve", {
     method: "POST",
     body: JSON.stringify(req),
   });
+  const data: ApproveAuthResponse = await res.json();
+  return { ...data, status: res.status };
+}
+
+/** 取得待核准的授權請求列表 */
+export async function fetchPendingRequests(deviceId: string): Promise<FetchPendingRequestsResponse> {
+  return request<FetchPendingRequestsResponse>(`/api/auth/pending?device_id=${encodeURIComponent(deviceId)}`);
 }
 
 /** 輪詢或檢查授權狀態 (發起端 Editor 用) */
 export async function checkAuthStatus(requestId: string): Promise<CheckAuthStatusResponse> {
-  const res = await request<CheckAuthStatusResponse>(`/api/auth/status?request_id=${requestId}`);
+  const res = await request<CheckAuthStatusResponse>(`/api/auth/status?request_id=${encodeURIComponent(requestId)}`);
   
   // 如果成功拿到 Session (JWT)，直接存入 sessionStorage
   if (res.success && res.session) {

@@ -128,18 +128,16 @@ export interface DeleteSchoolCalendarRequest {
   session_token: string;
 }
 
-/** 建立雙人授權請求 (Editor/Admin/SuperAdmin -> Admin/SuperAdmin/Admin) */
+/** 建立雙人授權請求 */
 export interface CreateAuthRequest {
-  requester_id: string;   // device_id
-  requester_name: string; // 顯示名稱
-  target_role: AdminRole;
+  device_id: string;
 }
 
 export interface CreateAuthResponse {
   success: boolean;
-  request_id: string;     // 用於後續查詢狀態
-  visual_challenge: number; // 顯示給申請者看的隨機數字
-  expires_at: string;
+  requestId: string;
+  challengeCode: number;
+  message?: string;
 }
 
 /** 檢查授權請求狀態 */
@@ -150,20 +148,33 @@ export interface CheckAuthStatusRequest {
 export interface CheckAuthStatusResponse {
   success: boolean;
   status: AuthRequestStatus;
-  session?: AdminSession; // 若 status 為 'approved'，則回傳 session
+  session?: AdminSession;
   message?: string;
 }
 
 /** 審核授權請求 (授權端使用) */
 export interface ApproveAuthRequest {
-  request_id: string;
-  admin_id: string;       // 審核者的 device_id
-  challenge_answer: number; // 審核者輸入的數字 (需與 visual_challenge 一致)
+  requestId: string;
+  inputCode: string;
+  admin_device_id: string;
 }
 
 export interface ApproveAuthResponse {
   success: boolean;
   message?: string;
+}
+
+/** 取得待核准的授權請求列表 */
+export interface PendingRequestItem {
+  id: string;
+  requester_name: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface FetchPendingRequestsResponse {
+  success: boolean;
+  requests: PendingRequestItem[];
 }
 
 /** 管理員白名單操作 (Super Admin 專用) */

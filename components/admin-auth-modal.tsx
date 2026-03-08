@@ -12,8 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useAdmin } from "@/components/admin-context";
-import type { CheckAuthStatusResponse } from "@/lib/types/api";
-import { getApiBaseUrl } from "@/lib/platform";
+import { createPeerAuth, checkAuthStatus, ApiError } from "@/lib/api-client";
 
 // --- Types ---
 
@@ -56,22 +55,9 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
     const initAuth = async () => {
       try {
-        const base = getApiBaseUrl();
-        const res = await fetch(`${base}/api/auth/request`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ device_id: deviceId }),
-        });
-
-        const data = await res.json();
+        const data = await createPeerAuth(deviceId);
 
         if (abortRef.current) return;
-
-        if (!res.ok || !data.success) {
-          setStep("error");
-          setErrorMsg(data.message || "發起授權請求失敗");
-          return;
-        }
 
         setChallengeCode(data.challengeCode);
         setRequestId(data.requestId);
@@ -79,7 +65,9 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
       } catch (err) {
         if (abortRef.current) return;
         setStep("error");
-        setErrorMsg("網路錯誤，請稍後再試");
+        setErrorMsg(
+          err instanceof ApiError ? err.message : "網路錯誤，請稍後再試"
+        );
       }
     };
 
@@ -97,9 +85,7 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
     const poll = async () => {
       try {
-        const base = getApiBaseUrl();
-        const res = await fetch(`${base}/api/auth/status?request_id=${requestId}`);
-        const data: CheckAuthStatusResponse = await res.json();
+        const data = await checkAuthStatus(requestId!);
 
         if (abortRef.current) return;
 

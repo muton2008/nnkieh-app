@@ -20,6 +20,10 @@ const MANIFEST_FILE = path.join(ROOT, 'app', 'manifest.ts');
 const MANIFEST_BACKUP = path.join(ROOT, 'app', '_manifest_backup.ts');
 const LIB_FIREBASE_ADMIN = path.join(ROOT, 'lib', 'firebase-admin.ts');
 const LIB_FIREBASE_ADMIN_BACKUP = path.join(ROOT, 'lib', '_firebase-admin_backup.ts');
+const TSCONFIG_PATH = path.join(ROOT, 'tsconfig.json');
+
+// 建置期間需要額外排除的備份路徑（避免 TS 編譯已移走的檔案）
+const BACKUP_EXCLUDES = ['app/_api_backup', 'app/_manifest_backup.ts', 'lib/_firebase-admin_backup.ts'];
 
 function moveIfExists(src, dest) {
   if (fs.existsSync(src)) {
@@ -37,6 +41,23 @@ function restore(backup, original) {
   }
 }
 
+/** 暫時在 tsconfig.json exclude 中加入備份路徑 */
+let originalTsconfig = null;
+function patchTsconfig() {
+  originalTsconfig = fs.readFileSync(TSCONFIG_PATH, 'utf-8');
+  const config = JSON.parse(originalTsconfig);
+  config.exclude = [...(config.exclude || []), ...BACKUP_EXCLUDES];
+  fs.writeFileSync(TSCONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+  console.log('  ✓ 暫時更新 tsconfig.json exclude');
+}
+
+function restoreTsconfig() {
+  if (originalTsconfig !== null) {
+    fs.writeFileSync(TSCONFIG_PATH, originalTsconfig);
+    console.log('  ✓ 還原 tsconfig.json');
+  }
+}
+
 // ── Main ──
 let success = false;
 
@@ -48,6 +69,7 @@ try {
   moveIfExists(API_DIR, API_BACKUP);
   moveIfExists(MANIFEST_FILE, MANIFEST_BACKUP);
   moveIfExists(LIB_FIREBASE_ADMIN, LIB_FIREBASE_ADMIN_BACKUP);
+  patchTsconfig();
 
   // Step 2: 建置靜態匯出
   console.log('\n🏗️  Step 2: 執行 next build (output: export)\n');
@@ -70,6 +92,7 @@ try {
   restore(API_BACKUP, API_DIR);
   restore(MANIFEST_BACKUP, MANIFEST_FILE);
   restore(LIB_FIREBASE_ADMIN_BACKUP, LIB_FIREBASE_ADMIN);
+  restoreTsconfig();
 
   if (success) {
     console.log('\n🎉 全部完成！接下來可以執行：');

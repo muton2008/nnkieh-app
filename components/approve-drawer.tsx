@@ -17,7 +17,8 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
-import { getApiBaseUrl } from "@/lib/platform";
+import { fetchPendingRequests, approvePeerAuth } from "@/lib/api-client";
+import type { PendingRequestItem } from "@/lib/types/api";
 
 // --- Types ---
 
@@ -29,14 +30,8 @@ type ApproveStep =
   | "submitting"
   | "success"
   | "conflict"
+  | "locked"
   | "error";
-
-interface PendingRequest {
-  id: string;
-  requester_name: string;
-  created_at: string;
-  expires_at: string;
-}
 
 interface ApproveDrawerProps {
   /** 來自 URL 參數或 FCM 的 auth request ID */
@@ -61,7 +56,7 @@ export function ApproveDrawer({
   const [step, setStep] = useState<ApproveStep>("input");
   const [otpValue, setOtpValue] = useState("");
   const [message, setMessage] = useState("");
-  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequestItem[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const fetchedRef = useRef(false);
 
@@ -99,9 +94,7 @@ export function ApproveDrawer({
     fetchedRef.current = true;
 
     try {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/auth/pending?device_id=${deviceId}`);
-      const data = await res.json();
+      const data = await fetchPendingRequests(deviceId);
 
       if (data.success && data.requests && data.requests.length > 0) {
         setPendingRequests(data.requests);
@@ -121,7 +114,7 @@ export function ApproveDrawer({
     }
   };
 
-  const handleSelectRequest = (req: PendingRequest) => {
+  const handleSelectRequest = (req: PendingRequestItem) => {
     setSelectedRequestId(req.id);
     setOtpValue("");
     setStep("input");
@@ -144,26 +137,21 @@ export function ApproveDrawer({
     setStep("submitting");
 
     try {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/auth/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requestId: effectiveRequestId,
-          inputCode: otpValue,
-          admin_device_id: deviceId,
-        }),
-      });
+      const data = await approvePeerAuth(effectiveRequestId, otpValue, deviceId);
 
-      const data = await res.json();
-
-      if (res.status === 409) {
+      if (data.status === 409) {
         setStep("conflict");
         setMessage(data.message || "此請求已由其他管理員處理");
         return;
       }
 
-      if (!res.ok || !data.success) {
+      if (data.status === 423) {
+        setStep("locked");
+        setMessage(data.message || "驗證失敗次數過多，此請求已鎖定");
+        return;
+      }
+
+      if (!data.success) {
         setStep("error");
         setMessage(data.message || "核准失敗");
         return;
@@ -361,6 +349,23 @@ export function ApproveDrawer({
               >
                 <AlertCircle size={40} className="text-amber-500" />
                 <p className="text-sm text-amber-600 text-center">{message}</p>
+              </motion.div>
+            )}
+
+            {/* Locked (423) — 暴力破解鎖定 */}
+            {step === "locked" && (
+              <motion.div
+                key="locked"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <ShieldAlert size={40} className="text-red-500" />
+                <p className="text-sm text-red-500 text-center font-medium">{message}</p>
+                <p className="text-[11px] text-muted-foreground/50 font-light text-center">
+                  請請求端重新發起授權
+                </p>
               </motion.div>
             )}
 
