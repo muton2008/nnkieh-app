@@ -59,7 +59,7 @@ export async function GET(request: Request) {
   } catch (error: any) {
     console.error("[Whitelist GET]", error);
     return NextResponse.json(
-      { success: false, message: "伺服器錯誤", detail: error.message },
+      { success: false, message: "伺服器錯誤" },
       { status: 500 }
     );
   }
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("[Whitelist POST]", error);
     return NextResponse.json(
-      { success: false, message: "伺服器錯誤", detail: error.message },
+      { success: false, message: "伺服器錯誤" },
       { status: 500 }
     );
   }

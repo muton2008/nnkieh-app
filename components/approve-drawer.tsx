@@ -139,7 +139,7 @@ export function ApproveDrawer({
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
-    if (!effectiveRequestId || otpValue.length !== 4) return;
+    if (!effectiveRequestId || otpValue.length !== 6) return;
 
     setStep("submitting");
 
@@ -180,7 +180,7 @@ export function ApproveDrawer({
 
   // OTP 填滿後自動提交
   useEffect(() => {
-    if (otpValue.length === 4 && step === "input") {
+    if (otpValue.length === 6 && step === "input") {
       handleSubmit();
     }
   }, [otpValue, step, handleSubmit]);
@@ -202,7 +202,7 @@ export function ApproveDrawer({
           <DrawerDescription className="text-xs font-light">
             {step === "fetch-pending" || step === "select-pending" || step === "no-pending"
               ? "正在查詢待核准的授權請求"
-              : "請輸入對方螢幕上的 4 位數驗證碼"}
+              : "請輸入對方螢幕上的 6 位數驗證碼"}
           </DrawerDescription>
         </DrawerHeader>
 
@@ -295,15 +295,19 @@ export function ApproveDrawer({
                   </p>
                 )}
                 <InputOTP
-                  maxLength={4}
+                  maxLength={6}
                   value={otpValue}
                   onChange={setOtpValue}
                 >
                   <InputOTPGroup>
-                    <InputOTPSlot index={0} className="w-14 h-14 text-2xl font-bold" />
-                    <InputOTPSlot index={1} className="w-14 h-14 text-2xl font-bold" />
-                    <InputOTPSlot index={2} className="w-14 h-14 text-2xl font-bold" />
-                    <InputOTPSlot index={3} className="w-14 h-14 text-2xl font-bold" />
+                    <InputOTPSlot index={0} className="w-12 h-14 text-2xl font-bold" />
+                    <InputOTPSlot index={1} className="w-12 h-14 text-2xl font-bold" />
+                    <InputOTPSlot index={2} className="w-12 h-14 text-2xl font-bold" />
+                  </InputOTPGroup>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={3} className="w-12 h-14 text-2xl font-bold" />
+                    <InputOTPSlot index={4} className="w-12 h-14 text-2xl font-bold" />
+                    <InputOTPSlot index={5} className="w-12 h-14 text-2xl font-bold" />
                   </InputOTPGroup>
                 </InputOTP>
                 <p className="text-[11px] text-muted-foreground/50 font-light">

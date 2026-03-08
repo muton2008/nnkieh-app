@@ -10,7 +10,6 @@ const nanoid = customAlphabet(alphabet, 7);
 export async function POST(request: Request) {
   try {
     const { device_id, schedule, class_name } = await request.json() as GenerateCodeRequest;
-    console.log("schedule", schedule);
     if (!device_id) return NextResponse.json({ success: false, message: "缺少裝置識別碼" }, { status: 400 });
 
     const supabase = await createClient();

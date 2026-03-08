@@ -12,8 +12,6 @@ function getJwtSecret() {
 }
 
 export async function POST(request: Request) {
-  console.log("=== DELETE EVENT API ===");
-
   try {
     const authHeader = request.headers.get("Authorization");
     const token = authHeader?.split(" ")[1];
@@ -27,9 +25,8 @@ export async function POST(request: Request) {
     let payload: any;
     try {
       payload = jwt.verify(token, secret, { algorithms: ["HS256"] });
-      console.log("[Auth] JWT payload:", payload);
     } catch (err) {
-      console.error("[Auth] JWT 驗證失敗:", err);
+      console.error("[Auth] JWT 驗證失敗");
       return NextResponse.json({ success: false, message: "JWT 驗證失敗" }, { status: 401 });
     }
 
@@ -65,6 +62,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("[DELETE EVENT] 發生錯誤:", error);
-    return NextResponse.json({ success: false, message: error.message || "刪除失敗" }, { status: 500 });
+    return NextResponse.json({ success: false, message: "刪除失敗" }, { status: 500 });
   }
 }

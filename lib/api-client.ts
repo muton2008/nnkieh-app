@@ -227,7 +227,6 @@ export async function saveSchoolEvent(
   sessionOverride?: AdminSession | null
 ): Promise<SaveSchoolCalendarResponse> {
   const session = sessionOverride ?? getAdminSession();
-  console.log("🔐 嘗試儲存學校事件，使用 Session:", session);
   if (!session) throw new Error("無效的管理員授權");
   if (!session.accessToken) throw new Error("授權憑證不存在，請重新進行雙人驗證");
 

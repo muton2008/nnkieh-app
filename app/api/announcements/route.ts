@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/server';
 import type { FetchAnnouncementsResponse } from "@/lib/types/api";
-
-const supabase = createClient();
 
 export async function GET(request: Request) {
   const { searchParams} = new URL(request.url);
   
   const queryText = searchParams.get('q')?.trim()
-    .replace(/[<>,.()\\]/g, "")  // 移除 HTML 及 PostgREST 結構字元，防止 filter injection
+    .replace(/[^\u4e00-\u9fffA-Za-z0-9\s\-]/g, "")  // 僅保留中文、英數、空白、連字號，防止 PostgREST filter injection
     .slice(0, 100) || "";        // 限制長度
   const page = parseInt(searchParams.get('page') || '1');
   const tab = searchParams.get('tab') || 'all';
@@ -18,6 +16,8 @@ export async function GET(request: Request) {
   
   const from = offset;
   const to = from + size - 1;
+
+  const supabase = await createClient();
 
   try {
     let query = supabase
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(response);
   } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Announcements API Error:', error);
+    return NextResponse.json({ error: '伺服器錯誤' }, { status: 500 });
   }
 }

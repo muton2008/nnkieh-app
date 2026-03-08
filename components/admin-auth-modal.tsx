@@ -173,7 +173,7 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
                   <ShieldCheck size={18} />
                   <span className="text-xs font-light">請告知核准端輸入此驗證碼</span>
                 </div>
-                <p className="text-6xl font-bold text-foreground tracking-[0.3em] tabular-nums font-serif">
+                <p className="text-5xl font-bold text-foreground tracking-[0.2em] tabular-nums font-serif">
                   {challengeCode}
                 </p>
                 <div className="flex items-center gap-2 mt-2">

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomInt } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { sendToTokens } from "@/lib/firebase-admin";
 
@@ -21,8 +22,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // 生成 4 位數挑戰碼與寫入資料庫
-    const challengeCode = Math.floor(1000 + Math.random() * 9000);
+    // 生成 6 位數挑戰碼與寫入資料庫（使用加密安全隨機數）
+    const challengeCode = randomInt(100000, 1000000);
 
     const { data: authReq, error: insertError } = await supabase
       .from("auth_requests")

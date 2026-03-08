@@ -8,10 +8,6 @@ export async function POST(request: Request) {
   try {
     const secret = process.env.JWT_SECRET?.trim();
 
-    // 診斷環境變數
-    console.log("[Approve API] JWT_SECRET raw:", JSON.stringify(secret));
-    console.log("[Approve API] JWT_SECRET length:", secret?.length || 0);
-
     if (!secret) {
       console.error("[Config Error] JWT_SECRET 未定義或為空");
       return NextResponse.json(
@@ -73,11 +69,47 @@ export async function POST(request: Request) {
       );
     }
 
+    // 檢查失敗次數是否已達上限
+    const MAX_ATTEMPTS = 5;
+    if ((authReq.failed_attempts || 0) >= MAX_ATTEMPTS) {
+      // 已鎖定但狀態尚未更新時，補更新為 rejected
+      await supabase
+        .from("auth_requests")
+        .update({ status: "rejected" })
+        .eq("id", requestId)
+        .eq("status", "pending");
+      return NextResponse.json(
+        { success: false, message: "驗證失敗次數過多，此請求已鎖定，請重新發起" },
+        { status: 423 }
+      );
+    }
+
     // 驗證挑戰碼
     if (authReq.visual_challenge.toString() !== inputCode.toString()) {
+      const newAttempts = (authReq.failed_attempts || 0) + 1;
+      const updatePayload: Record<string, any> = {
+        failed_attempts: newAttempts,
+      };
+
+      // 達到上限時直接鎖定請求
+      if (newAttempts >= MAX_ATTEMPTS) {
+        updatePayload.status = "rejected";
+      }
+
+      await supabase
+        .from("auth_requests")
+        .update(updatePayload)
+        .eq("id", requestId)
+        .eq("status", "pending");
+
+      const remaining = MAX_ATTEMPTS - newAttempts;
+      const message = remaining > 0
+        ? `挑戰碼錯誤，剩餘 ${remaining} 次嘗試機會`
+        : "驗證失敗次數過多，此請求已鎖定，請重新發起";
+
       return NextResponse.json(
-        { success: false, message: "挑戰碼錯誤，請重新確認 A 螢幕上的數字" },
-        { status: 400 }
+        { success: false, message },
+        { status: remaining > 0 ? 400 : 423 }
       );
     }
 
@@ -119,7 +151,6 @@ export async function POST(request: Request) {
       {
         success: false,
         message: "伺服器錯誤",
-        detail: error.message,
       },
       { status: 500 }
     );

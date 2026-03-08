@@ -5,7 +5,6 @@ import type { JoinClassRequest, JoinClassResponse } from '@/lib/types/api';
 export async function POST(request: Request) {
   try {
     const { invite_code } = await request.json() as JoinClassRequest;
-    console.log("Received join request with invite_code:", invite_code);
 
     if (!invite_code) {
       return NextResponse.json({ success: false, message: "請輸入邀請碼" }, { status: 400 });

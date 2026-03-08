@@ -123,7 +123,7 @@ export async function POST(request: Request) {
   } catch (error: any) {
     console.error("[Handover]", error);
     return NextResponse.json(
-      { success: false, message: "伺服器錯誤", detail: error.message },
+      { success: false, message: "伺服器錯誤" },
       { status: 500 }
     );
   }

@@ -52,7 +52,6 @@ export const getFCMToken = async (): Promise<string | null> => {
           };
 
           PushNotifications.addListener('registration', (token) => {
-            console.log('Native Push Token:', token.value);
             done(token.value);
           });
 

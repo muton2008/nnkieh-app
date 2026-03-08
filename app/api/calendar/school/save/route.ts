@@ -28,9 +28,8 @@ export async function POST(request: Request) {
     let payload: any;
     try {
       payload = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] });
-      console.log("[Auth] JWT payload:", payload);
     } catch (err) {
-      console.error("[Auth] JWT 驗證失敗:", err);
+      console.error("[Auth] JWT 驗證失敗");
       return NextResponse.json({ success: false, message: "無效或過期的憑證" }, { status: 401 });
     }
 
@@ -80,6 +79,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("[SAVE EVENT] 發生錯誤:", error);
-    return NextResponse.json({ success: false, message: error.message || "儲存失敗" }, { status: 500 });
+    return NextResponse.json({ success: false, message: "儲存失敗" }, { status: 500 });
   }
 }

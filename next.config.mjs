@@ -2,9 +2,6 @@
 const isCapacitor = process.env.BUILD_TARGET === 'capacitor';
 
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   images: {
     unoptimized: true,
   },
