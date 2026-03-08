@@ -19,7 +19,8 @@ import {
 } from "@/lib/api-client";
 import { APP_VERSION } from "@/lib/version";
 import { CHANGELOG } from "@/lib/changelog";
-import { isNative } from "@/lib/platform";
+import { PrivacyPage } from "@/components/privacy-page";
+import { LicensesPage } from "@/components/licenses-page";
 
 const DIVISION_OPTIONS: { value: SchoolDivision; label: string; desc: string }[] = [
   { value: "no disturb", label: "都不", desc: "不接收任何重要通知" },
@@ -33,6 +34,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ deviceId }: SettingsPageProps) {
+  const [subPage, setSubPage] = useState<null | "privacy" | "licenses">(null);
   const [profile, setProfile] = useState<UserProfile>({
     ...DEFAULT_USER_PROFILE,
     device_id: deviceId,
@@ -190,6 +192,13 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         <p className="text-sm text-muted-foreground">載入中...</p>
       </div>
     );
+  }
+
+  if (subPage === "privacy") {
+    return <PrivacyPage onBack={() => setSubPage(null)} />;
+  }
+  if (subPage === "licenses") {
+    return <LicensesPage onBack={() => setSubPage(null)} />;
   }
 
   return (
@@ -378,9 +387,9 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
 
         <footer className="pt-2 border-t border-dashed border-border space-y-2">
           <div className="flex justify-center gap-3 text-[10px] text-muted-foreground/50 font-light">
-            <a href="/privacy" {...(!isNative() ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">隱私權政策</a>
+            <button onClick={() => setSubPage("privacy")} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">隱私權政策</button>
             <span>·</span>
-            <a href="/licenses" {...(!isNative() ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">開源授權</a>
+            <button onClick={() => setSubPage("licenses")} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">開源授權</button>
           </div>
           <p className="text-[10px] text-muted-foreground/40 text-center font-light tracking-wider">
             南科實中 NNKIEH
