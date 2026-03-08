@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-client";
 import { APP_VERSION } from "@/lib/version";
 import { CHANGELOG } from "@/lib/changelog";
+import { isNative } from "@/lib/platform";
 
 const DIVISION_OPTIONS: { value: SchoolDivision; label: string; desc: string }[] = [
   { value: "no disturb", label: "都不", desc: "不接收任何重要通知" },
@@ -377,9 +378,9 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
 
         <footer className="pt-2 border-t border-dashed border-border space-y-2">
           <div className="flex justify-center gap-3 text-[10px] text-muted-foreground/50 font-light">
-            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">隱私權政策</a>
+            <a href="/privacy" {...(!isNative() ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">隱私權政策</a>
             <span>·</span>
-            <a href="/licenses" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">開源授權</a>
+            <a href="/licenses" {...(!isNative() ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="underline underline-offset-2 hover:text-muted-foreground/70 transition-colors">開源授權</a>
           </div>
           <p className="text-[10px] text-muted-foreground/40 text-center font-light tracking-wider">
             南科實中 NNKIEH
