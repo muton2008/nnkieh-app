@@ -39,6 +39,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "裝置識別碼不匹配" }, { status: 403 });
     }
 
+    // 審核模式：review JWT 不執行寫入，直接回傳假成功
+    if (payload.review === true) {
+      const { event } = await request.json();
+      return NextResponse.json({ success: true, data: { ...event, id: event.id || crypto.randomUUID() } });
+    }
+
     // 解析 Body
     const { event } = await request.json();
     if (!event) {

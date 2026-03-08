@@ -12,7 +12,7 @@ export interface UserProfile {
 
 export const DEFAULT_USER_PROFILE: UserProfile = {
   device_id: "",
-  division: 'all',
+  division: 'no disturb',
   notify_all: false,
   fcm_token: undefined,
   updated_at: undefined,

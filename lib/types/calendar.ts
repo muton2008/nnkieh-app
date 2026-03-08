@@ -83,7 +83,9 @@ export interface AdminSession {
   role: AdminRole;
   deviceId: string;
   /** 過期時間點 (Timestamp)，方便前端倒數計時 */
-  expiresAt: number; 
+  expiresAt: number;
+  /** 體驗模式標記（Play Store 審核用） */
+  review?: boolean;
 }
 
 /**

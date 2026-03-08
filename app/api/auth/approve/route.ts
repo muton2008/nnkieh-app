@@ -17,6 +17,31 @@ export async function POST(request: Request) {
     }
 
     const { requestId, inputCode, admin_device_id } = await request.json();
+
+    // ── Play Store 審核模式：輸入 000000 直接簽發體驗 JWT ──
+    if (
+      process.env.REVIEW_MODE === "true" &&
+      inputCode?.toString() === "000000" &&
+      requestId === "__review__"
+    ) {
+      const reviewToken = jwt.sign(
+        { role: "editor", deviceId: admin_device_id, review: true },
+        secret,
+        { algorithm: "HS256", expiresIn: "2h" }
+      );
+      return NextResponse.json({
+        success: true,
+        message: "體驗模式已啟用",
+        reviewSession: {
+          accessToken: reviewToken,
+          role: "editor",
+          deviceId: admin_device_id,
+          expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+          review: true,
+        },
+      });
+    }
+
     const supabase = await createClient();
 
     // 驗證管理員 B 是否在白名單

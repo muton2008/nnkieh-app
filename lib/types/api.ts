@@ -264,3 +264,17 @@ export interface SyncUserProfileResponse {
   updated_at?: string;
   message?: string;
 }
+
+// ============================================================
+// 5-1. 裝置註冊 (Device Registration)
+// ============================================================
+
+export interface RegisterDeviceRequest {
+  device_id: string;
+}
+
+export interface RegisterDeviceResponse {
+  success: boolean;
+  conflict?: boolean;
+  message?: string;
+}

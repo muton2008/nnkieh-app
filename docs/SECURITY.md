@@ -137,7 +137,8 @@ const queryText = input
 const page = parseInt(searchParams.get('page') || '1');
 if (isNaN(page)) return error(400);
 
-// UUID — 格式驗證（建議加入）
+// UUID — 格式驗證
+// device_id 已由 lib/device-id.ts 以 crypto.getRandomValues() (CSPRNG) 產生
 const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 ```
 
@@ -209,7 +210,7 @@ if (!operator || operator.role !== "super_admin") {
 
 | Key | 內容 | 風險 |
 |---|---|---|
-| `device_id` | UUID | 若被竊取可冒充裝置身份（中） |
+| `device_id` | UUID v4 (CSPRNG) | 若被竊取可冒充裝置身份（中），首次啟動時向 Server 註冊確保唯一 |
 | `user_profile` | 使用者設定 | 不含敏感資訊（低） |
 | `private_notes` | 私人備註 | 僅限本機可見（低） |
 | `cache_*` | API 快取 | 短期自動失效（低） |
@@ -252,7 +253,7 @@ if (!operator || operator.role !== "super_admin") {
 
 ### 未來改善建議
 
-1. **device_id 強化** — 考慮使用 Capacitor Device plugin 取得硬體 ID
+1. ~~**device_id 強化**~~ — ✅ 已改用 `crypto.getRandomValues()` (CSPRNG) 產生 UUID v4，並於首次啟動時向 Server 註冊確保唯一性。Android 硬體 ID 非 UUID 格式不適用 Supabase uuid 欄位，故採用純隨機方案
 2. **Supabase RLS** — 為所有表啟用 Row Level Security
 3. **Audit Log** — 記錄所有管理員操作（who/what/when）
 4. **App Check** — 啟用 Firebase App Check 防止未授權 API 呼叫

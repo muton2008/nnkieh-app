@@ -13,17 +13,7 @@ import { AdminProvider } from "@/components/admin-context";
 import { ApproveDrawer } from "@/components/approve-drawer";
 import { UpdateDialog } from "@/components/update-dialog";
 import { isNative, isPluginAvailable } from "@/lib/platform";
-
-// UUID generation function
-function generateUUID(): string {
-  return typeof crypto !== 'undefined' && crypto.randomUUID 
-    ? crypto.randomUUID() 
-    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-}
+import { getOrRegisterDeviceId } from "@/lib/device-id";
 
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
@@ -32,14 +22,15 @@ export default function Page() {
   const [forceApproveOpen, setForceApproveOpen] = useState(false);
   const prevTabRef = useRef<TabId>(activeTab);
 
-  // Device UUID identification
+  // Device 註冊 / 初始化
   useEffect(() => {
-    let id = localStorage.getItem("device_id");
-    if (!id) {
-      id = generateUUID();
-      localStorage.setItem("device_id", id);
-    }
-    setDeviceId(id);
+    let cancelled = false;
+    getOrRegisterDeviceId().then((id) => {
+      if (!cancelled) setDeviceId(id);
+    }).catch((err) => {
+      console.error("裝置 ID 初始化失敗:", err);
+    });
+    return () => { cancelled = true; };
   }, []);
   useEffect(() => {
     if (!deviceId) return; // 等 deviceId 準備好再追蹤，數據會更精準

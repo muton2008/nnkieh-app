@@ -110,12 +110,12 @@ app/page.tsx (root)
 ┌───────────────────────────────────────────┐
 │              React Context                │
 │  AdminProvider → useAdmin()               │  ← 管理員 Session
-│  deviceId (page.tsx state)                │  ← 裝置識別碼
+│  deviceId (page.tsx state)                │  ← 裝置識別碼（首次啟動時向 Server 註冊）
 └───────────────────────────────────────────┘
 
 ┌───────────────────────────────────────────┐
 │            localStorage                   │
-│  device_id          → UUID                │
+│  device_id          → UUID v4 (CSPRNG)    │
 │  user_profile       → UserProfile JSON    │
 │  private_notes      → PrivateNoteStore    │
 │  private_calendar_events → Event[]        │
@@ -160,6 +160,7 @@ app/api/
 │   ├── POST /class/generate     生成班級代碼
 │   ├── POST /class/join         加入班級
 │   ├── POST /class/leave        退出班級（限建立者）
+│   ├── POST /user/device/register 裝置註冊（首次啟動）
 │   ├── GET  /user/profile       查詢使用者設定
 │   └── POST /user/profile/sync  同步使用者設定
 │

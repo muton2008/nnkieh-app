@@ -17,6 +17,8 @@ import {
   SyncUserProfileRequest,
   SyncUserProfileResponse,
   GetUserProfileResponse,
+  RegisterDeviceRequest,
+  RegisterDeviceResponse,
   CreateAuthResponse,
   ApproveAuthRequest,
   ApproveAuthResponse,
@@ -125,6 +127,14 @@ export async function syncUserProfile(profile: UserProfile): Promise<SyncUserPro
 /** 從後端取得使用者個人資料 */
 export async function fetchUserProfile(device_id: string): Promise<GetUserProfileResponse> {
   return request<GetUserProfileResponse>(`/api/user/profile?device_id=${encodeURIComponent(device_id)}`);
+}
+
+/** 向後端註冊裝置（首次啟動時呼叫） */
+export async function registerDevice(device_id: string): Promise<RegisterDeviceResponse> {
+  return request<RegisterDeviceResponse>("/api/user/device/register", {
+    method: "POST",
+    body: JSON.stringify({ device_id } as RegisterDeviceRequest),
+  });
 }
 
 // ============================================================

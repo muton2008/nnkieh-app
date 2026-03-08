@@ -265,6 +265,43 @@
 
 ## 使用者設定 (User)
 
+### `POST /api/user/device/register`
+
+首次啟動時註冊裝置。若 `device_id` 已存在則回傳衝突（409），前端會自動重新生成 UUID 並重試。
+
+Device ID 由前端 `lib/device-id.ts` 以 `crypto.getRandomValues()` (CSPRNG) 產生標準 UUID v4，相較舊版 `Math.random()` 具備更強的隨機性（122-bit 有效隨機熵）。
+
+**Request Body:**
+
+```json
+{ "device_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" }
+```
+
+**Response (200):**
+
+```json
+{ "success": true }
+```
+
+**Response (409 — 衝突):**
+
+```json
+{ "success": false, "conflict": true, "message": "Device ID already registered" }
+```
+
+**流程：**
+
+```
+首次啟動 → generateSecureUUIDv4() → POST /api/user/device/register
+  ├─ 200 → localStorage 存入 → 完成
+  ├─ 409 (衝突) → 重新生成 → 重試 (max 3)
+  └─ 網路錯誤 → 先存 localStorage，後續 syncUserProfile 會 upsert
+
+再次啟動 → localStorage 有值 → 直接使用（不再呼叫註冊 API）
+```
+
+---
+
 ### `GET /api/user/profile`
 
 查詢使用者設定。

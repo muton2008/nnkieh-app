@@ -18,13 +18,13 @@ import {
 } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
 import { fetchPendingRequests, approvePeerAuth } from "@/lib/api-client";
+import { useAdmin } from "@/components/admin-context";
 import type { PendingRequestItem } from "@/lib/types/api";
 
 // --- Types ---
 
 type ApproveStep =
   | "fetch-pending"
-  | "no-pending"
   | "select-pending"
   | "input"
   | "submitting"
@@ -52,6 +52,7 @@ export function ApproveDrawer({
   forceOpen = false,
   onClose,
 }: ApproveDrawerProps) {
+  const { enableAdminMode } = useAdmin();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<ApproveStep>("input");
   const [otpValue, setOtpValue] = useState("");
@@ -107,10 +108,11 @@ export function ApproveDrawer({
           setStep("select-pending");
         }
       } else {
-        setStep("no-pending");
+        // 沒有待核准請求時，仍顯示 OTP 輸入（隱藏體驗模式入口）
+        setStep("input");
       }
     } catch {
-      setStep("no-pending");
+      setStep("input");
     }
   };
 
@@ -132,12 +134,31 @@ export function ApproveDrawer({
   }, [onClose]);
 
   const handleSubmit = useCallback(async () => {
-    if (!effectiveRequestId || otpValue.length !== 6) return;
+    if (otpValue.length !== 6) return;
+
+    // 體驗模式：輸入 000000 且無選定請求時，走審核體驗流程
+    const isReviewCode = otpValue === "000000" && !effectiveRequestId;
+    const submitRequestId = isReviewCode ? "__review__" : effectiveRequestId;
+    if (!submitRequestId) {
+      // 無權限且不是體驗碼
+      setStep("error");
+      setMessage("您沒有管理員權限");
+      return;
+    }
 
     setStep("submitting");
 
     try {
-      const data = await approvePeerAuth(effectiveRequestId, otpValue, deviceId);
+      const data = await approvePeerAuth(submitRequestId, otpValue, deviceId);
+
+      // 體驗模式成功：後端回傳 reviewSession，直接啟用
+      if (data.success && (data as any).reviewSession) {
+        enableAdminMode((data as any).reviewSession);
+        setStep("success");
+        setMessage("體驗模式已啟用");
+        setTimeout(handleClose, 2000);
+        return;
+      }
 
       if (data.status === 409) {
         setStep("conflict");
@@ -164,7 +185,7 @@ export function ApproveDrawer({
       setStep("error");
       setMessage("網路錯誤，請稍後再試");
     }
-  }, [effectiveRequestId, otpValue, deviceId, handleClose]);
+  }, [effectiveRequestId, otpValue, deviceId, handleClose, enableAdminMode]);
 
   // OTP 填滿後自動提交
   useEffect(() => {
@@ -188,7 +209,7 @@ export function ApproveDrawer({
             授權核准
           </DrawerTitle>
           <DrawerDescription className="text-xs font-light">
-            {step === "fetch-pending" || step === "select-pending" || step === "no-pending"
+            {step === "fetch-pending" || step === "select-pending"
               ? "正在查詢待核准的授權請求"
               : "請輸入對方螢幕上的 6 位數驗證碼"}
           </DrawerDescription>
@@ -207,25 +228,6 @@ export function ApproveDrawer({
               >
                 <Loader2 size={32} className="animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground font-light">查詢中...</p>
-              </motion.div>
-            )}
-
-            {/* No pending requests */}
-            {step === "no-pending" && (
-              <motion.div
-                key="no-pending"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col items-center gap-3"
-              >
-                <ShieldAlert size={40} className="text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground text-center">
-                  目前沒有待核准的授權請求
-                </p>
-                <p className="text-[11px] text-muted-foreground/50 font-light text-center">
-                  請等待其他管理員發起請求後再試
-                </p>
               </motion.div>
             )}
 

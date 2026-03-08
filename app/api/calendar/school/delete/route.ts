@@ -36,6 +36,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "JWT 格式錯誤" }, { status: 401 });
     }
 
+    // 審核模式：review JWT 不執行刪除，直接回傳假成功
+    if (payload.review === true) {
+      return NextResponse.json({ success: true, message: "刪除成功" });
+    }
+
     const { event_id } = await request.json();
     if (!event_id) {
       return NextResponse.json({ success: false, message: "缺少 event_id" }, { status: 400 });
