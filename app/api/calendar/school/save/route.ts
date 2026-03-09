@@ -51,6 +51,36 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "缺少 event 資料" }, { status: 400 });
     }
 
+    // 驗證必要欄位
+    if (!event.date || !event.title?.trim()) {
+      return NextResponse.json({ success: false, message: "缺少日期或標題" }, { status: 400 });
+    }
+
+    // 驗證日期格式
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(event.date) || (event.end_date && !dateRegex.test(event.end_date))) {
+      return NextResponse.json({ success: false, message: "日期格式不正確" }, { status: 400 });
+    }
+
+    // 驗證結束日期不早於開始日期
+    const endDate = event.end_date || event.date;
+    if (endDate < event.date) {
+      return NextResponse.json({ success: false, message: "結束日期不可早於開始日期" }, { status: 400 });
+    }
+
+    // 驗證時間格式與邏輯
+    const timeRegex = /^\d{2}:\d{2}$/;
+    if (event.start_time && !timeRegex.test(event.start_time)) {
+      return NextResponse.json({ success: false, message: "開始時間格式不正確" }, { status: 400 });
+    }
+    if (event.end_time && !timeRegex.test(event.end_time)) {
+      return NextResponse.json({ success: false, message: "結束時間格式不正確" }, { status: 400 });
+    }
+    // 同一天時，結束時間不可早於開始時間
+    if (event.start_time && event.end_time && event.date === endDate && event.end_time < event.start_time) {
+      return NextResponse.json({ success: false, message: "結束時間不可早於開始時間" }, { status: 400 });
+    }
+
     // 判斷 ID 是否為前端生成的臨時 ID (如 school_123)
     const eventId = String(event.id || "");
     const isTempId = eventId.startsWith("school_") || eventId.startsWith("priv_") || !event.id;
@@ -71,6 +101,7 @@ export async function POST(request: Request) {
         category: event.category || "其他",
         updated_at: new Date().toISOString(),
         updated_by: payload.deviceId,
+        target_audience: event.target_audience || "全校",
         is_deleted: false,
       })
       .select()

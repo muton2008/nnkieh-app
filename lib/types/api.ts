@@ -120,6 +120,7 @@ export interface SaveSchoolCalendarRequest {
 export interface SaveSchoolCalendarResponse {
   success: boolean;
   message?: string;
+  data?: SchoolCalendarEvent;
 }
 
 /** 刪除全校行事曆事件 (管理員專用) */

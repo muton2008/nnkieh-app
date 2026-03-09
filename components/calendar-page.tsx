@@ -481,6 +481,19 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
   const handleSaveEvent = async () => {
     if (!newTitle.trim()) return;
 
+    // 驗證日期與時間
+    const effectiveEndDate = newEndDate || newDate;
+    if (effectiveEndDate < newDate) {
+      alert("結束日期不可早於開始日期");
+      return;
+    }
+    const effectiveStart = newStartTime || "00:00";
+    const effectiveEnd = newEndTime || "23:59";
+    if (newDate === effectiveEndDate && effectiveEnd < effectiveStart) {
+      alert("結束時間不可早於開始時間");
+      return;
+    }
+
     // 管理模式：儲存/新增學校事件
     if (isAdminMode && (!editingEvent || !editingEvent.isPrivate)) {
       setIsSaving(true);
@@ -499,15 +512,16 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           updated_by: session?.deviceId ?? "unknown",
         };
 
-        await saveSchoolEvent(schoolEvt, session);
+        const res = await saveSchoolEvent(schoolEvt, session);
+        const saved = res.data ? { ...schoolEvt, id: res.data.id } : schoolEvt;
 
         // 更新本地狀態
         if (editingEvent) {
           setSchoolEvents((prev) =>
-            prev.map((e) => (e.id === editingEvent.sourceId ? schoolEvt : e))
+            prev.map((e) => (e.id === editingEvent.sourceId ? saved : e))
           );
         } else {
-          setSchoolEvents((prev) => [...prev, schoolEvt]);
+          setSchoolEvents((prev) => [...prev, saved]);
         }
       } catch (e) {
         console.error("[CalendarPage] save school event error:", e);
@@ -543,6 +557,8 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
   };
 
   const handleDeleteEvent = async (evt: CombinedEvent) => {
+    if (!confirm(`確定要刪除「${evt.title}」嗎？`)) return;
+
     if (evt.isPrivate) {
       const updated = privateEvents.filter((e) => e.id !== evt.sourceId);
       setPrivateEvents(updated);

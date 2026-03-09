@@ -46,6 +46,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "缺少 event_id" }, { status: 400 });
     }
 
+    // 驗證 event_id 是否為合法 UUID 格式
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(event_id)) {
+      return NextResponse.json({ success: false, message: "無效的 event_id 格式" }, { status: 400 });
+    }
+
     const supabase = await createClient();
 
     // 軟刪除
