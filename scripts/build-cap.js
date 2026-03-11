@@ -21,9 +21,37 @@ const MANIFEST_BACKUP = path.join(ROOT, 'app', '_manifest_backup.ts');
 const LIB_FIREBASE_ADMIN = path.join(ROOT, 'lib', 'firebase-admin.ts');
 const LIB_FIREBASE_ADMIN_BACKUP = path.join(ROOT, 'lib', '_firebase-admin_backup.ts');
 const TSCONFIG_PATH = path.join(ROOT, 'tsconfig.json');
+const ANDROID_BUILD_GRADLE = path.join(ROOT, 'android', 'app', 'build.gradle');
 
 // 建置期間需要額外排除的備份路徑（避免 TS 編譯已移走的檔案）
 const BACKUP_EXCLUDES = ['app/_api_backup', 'app/_manifest_backup.ts', 'lib/_firebase-admin_backup.ts'];
+
+/** 自動同步 android/app/build.gradle 的 versionCode (+1) 與 versionName (= package.json version) */
+function bumpAndroidVersion() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
+  const versionName = pkg.version;
+
+  let gradle = fs.readFileSync(ANDROID_BUILD_GRADLE, 'utf-8');
+
+  // versionCode +1
+  const codeMatch = gradle.match(/versionCode\s+(\d+)/);
+  if (codeMatch) {
+    const oldCode = parseInt(codeMatch[1], 10);
+    const newCode = oldCode + 1;
+    gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${newCode}`);
+    console.log(`  ✓ versionCode ${oldCode} → ${newCode}`);
+  }
+
+  // versionName = package.json version
+  const nameMatch = gradle.match(/versionName\s+"[^"]+"/);
+  if (nameMatch) {
+    const oldName = nameMatch[0];
+    gradle = gradle.replace(/versionName\s+"[^"]+"/, `versionName "${versionName}"`);
+    console.log(`  ✓ versionName → "${versionName}"`);
+  }
+
+  fs.writeFileSync(ANDROID_BUILD_GRADLE, gradle);
+}
 
 function moveIfExists(src, dest) {
   if (fs.existsSync(src)) {
@@ -63,6 +91,10 @@ let success = false;
 
 try {
   console.log('\n🔧 Capacitor 建置：準備靜態匯出...\n');
+
+  // Step 0: 同步 Android 版本號
+  console.log('🔢 Step 0: 同步 Android 版本號');
+  bumpAndroidVersion();
 
   // Step 1: 移走 server-only 檔案
   console.log('📦 Step 1: 暫時移除 server-only 檔案');

@@ -160,6 +160,72 @@ function generateId(): string {
   return `priv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 一週內某個事件的佈局資訊 */
+interface WeekEventSlot {
+  event: CombinedEvent;
+  startCol: number; // 0-6
+  endCol: number;   // 0-6
+  lane: number;     // 垂直槽位 index
+}
+
+/** 為一週計算事件的 lane 佈局（多日事件連續、避免重疊） */
+function computeWeekLayout(
+  weekDays: dayjs.Dayjs[],
+  events: CombinedEvent[]
+): WeekEventSlot[] {
+  const weekStart = weekDays[0].startOf("day");
+  const weekEnd = weekDays[6].startOf("day");
+
+  // 找出與此週有重疊的事件
+  const relevant = events.filter((e) => {
+    const s = dayjs(e.date).startOf("day");
+    const end = (e.end_date ? dayjs(e.end_date) : s).startOf("day");
+    return !s.isAfter(weekEnd, "day") && !end.isBefore(weekStart, "day");
+  });
+
+  // 排序：多日優先（長→短）→ 開始日期早 → 時間早
+  relevant.sort((a, b) => {
+    const aDays = dayjs(a.end_date || a.date).diff(dayjs(a.date), "day");
+    const bDays = dayjs(b.end_date || b.date).diff(dayjs(b.date), "day");
+    if (bDays !== aDays) return bDays - aDays;
+    const dd = dayjs(a.date).diff(dayjs(b.date));
+    if (dd !== 0) return dd;
+    return (a.start_time || "").localeCompare(b.start_time || "");
+  });
+
+  const slots: WeekEventSlot[] = [];
+  const lanes: (string | null)[][] = [];
+
+  for (const evt of relevant) {
+    const evtStart = dayjs(evt.date).startOf("day");
+    const evtEnd = (evt.end_date ? dayjs(evt.end_date) : evtStart).startOf("day");
+    const startCol = Math.max(0, evtStart.diff(weekStart, "day"));
+    const endCol = Math.min(6, evtEnd.diff(weekStart, "day"));
+    if (startCol > 6 || endCol < 0) continue;
+
+    // 找空閒 lane
+    let lane = -1;
+    for (let l = 0; l < lanes.length; l++) {
+      let free = true;
+      for (let c = startCol; c <= endCol; c++) {
+        if (lanes[l][c] !== null) { free = false; break; }
+      }
+      if (free) { lane = l; break; }
+    }
+    if (lane === -1) {
+      lane = lanes.length;
+      lanes.push(Array(7).fill(null));
+    }
+
+    for (let c = startCol; c <= endCol; c++) {
+      lanes[lane][c] = evt.id;
+    }
+    slots.push({ event: evt, startCol, endCol, lane });
+  }
+
+  return slots;
+}
+
 // --- Shared Form Fields (used in both Drawer & Dialog) ---
 
 interface EventFormFieldsProps {
@@ -729,44 +795,82 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
             ))}
           </div>
 
-          <div className="grid grid-cols-7">
-            {calendarDays.map((day, idx) => {
-              const isToday = day.isSame(dayjs(), "day");
-              const isSelected = day.isSame(selectedDate, "day");
-              const isCurrentMonth = day.isSame(currentMonth, "month");
-              const dayEvts = getEventsForDay(allEvents, day);
-              const uniqueCategories = [...new Set(dayEvts.map((e) => e.category))];
+          {/* 按週渲染：日期 + 事件條 */}
+          {Array.from({ length: 6 }, (_, weekIdx) => {
+            const weekDays = calendarDays.slice(weekIdx * 7, weekIdx * 7 + 7);
+            const weekSlots = computeWeekLayout(weekDays, allEvents);
+            const maxLane = weekSlots.length > 0 ? Math.max(...weekSlots.map((s) => s.lane)) : -1;
+            const MAX_LANES = 2;
+            const visibleLanes = Math.min(maxLane + 1, MAX_LANES);
 
-              return (
-                <button
-                  key={idx}
-                  onClick={() => setSelectedDate(day)}
-                  className={`relative flex flex-col items-center justify-start py-1.5 h-[52px] transition-colors border-t border-border/30
-                    ${!isCurrentMonth ? "opacity-30" : ""}
-                    ${isSelected ? "bg-foreground/5" : "hover:bg-foreground/[0.02]"}
-                  `}
-                >
-                  <span
-                    className={`text-xs tabular-nums leading-none mb-1 w-6 h-6 flex items-center justify-center rounded-full
-                      ${isToday ? "bg-foreground text-background font-semibold" : ""}
-                      ${isSelected && !isToday ? "ring-1 ring-foreground/40" : ""}
-                      ${!isToday ? "font-light" : ""}
-                    `}
-                  >
-                    {day.date()}
-                  </span>
-                  <div className="flex gap-[3px] flex-wrap justify-center max-w-[36px]">
-                    {uniqueCategories.slice(0, 3).map((cat) => (
+            return (
+              <div key={weekIdx} className="grid grid-cols-7 border-t border-border/30">
+                {weekDays.map((day, colIdx) => {
+                  const isToday = day.isSame(dayjs(), "day");
+                  const isSelected = day.isSame(selectedDate, "day");
+                  const isCurrentMonth = day.isSame(currentMonth, "month");
+                  const totalInCell = weekSlots.filter((s) => colIdx >= s.startCol && colIdx <= s.endCol).length;
+                  const overflowCount = Math.max(0, totalInCell - MAX_LANES);
+
+                  return (
+                    <button
+                      key={colIdx}
+                      onClick={() => setSelectedDate(day)}
+                      className={`relative flex flex-col items-center py-1 min-h-[68px] transition-colors
+                        ${!isCurrentMonth ? "opacity-30" : ""}
+                        ${isSelected ? "bg-foreground/5" : "hover:bg-foreground/[0.02]"}
+                      `}
+                    >
                       <span
-                        key={cat}
-                        className={`w-[5px] h-[5px] rounded-full ${CATEGORY_DOT[cat]}`}
-                      />
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                        className={`text-[11px] tabular-nums leading-none mb-1 w-5 h-5 flex items-center justify-center rounded-full
+                          ${isToday ? "bg-foreground text-background font-semibold" : ""}
+                          ${isSelected && !isToday ? "ring-1 ring-foreground/40" : ""}
+                          ${!isToday ? "font-light" : ""}
+                        `}
+                      >
+                        {day.date()}
+                      </span>
+                      <div className="w-full flex flex-col gap-[1px] overflow-hidden flex-1">
+                        {Array.from({ length: visibleLanes }, (__, laneIdx) => {
+                          const slot = weekSlots.find(
+                            (s) => s.lane === laneIdx && colIdx >= s.startCol && colIdx <= s.endCol
+                          );
+                          if (!slot) {
+                            return <div key={laneIdx} className="h-[15px]" />;
+                          }
+                          const isStart = colIdx === slot.startCol;
+                          const isEnd = colIdx === slot.endCol;
+                          const isSingle = isStart && isEnd;
+                          const middleCol = Math.floor((slot.startCol + slot.endCol) / 2);
+                          const showText = colIdx === middleCol;
+                          return (
+                            <div
+                              key={`${slot.event.id}-${laneIdx}`}
+                              className={[
+                                "h-[15px] text-[9px] leading-[15px] text-white overflow-hidden whitespace-nowrap text-center truncate",
+                                CATEGORY_DOT[slot.event.category],
+                                isSingle ? "rounded-[3px] mx-[1px] px-[3px]" : "",
+                                isStart && !isSingle ? "rounded-l-[3px] ml-[1px] pl-[3px] pr-0 mr-0" : "",
+                                isEnd && !isSingle ? "rounded-r-[3px] mr-[1px] pl-0 ml-0" : "",
+                                !isStart && !isEnd ? "rounded-none mx-0 px-0" : "",
+                              ].join(" ")}
+                            >
+                              {showText ? slot.event.title : "\u00A0"}
+                            </div>
+                          );
+                        })}
+                        {overflowCount > 0 && (
+                          <span className="text-[9px] leading-[12px] text-muted-foreground/60 font-light text-center w-full">
+                            +{overflowCount}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </div>
 
