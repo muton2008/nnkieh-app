@@ -34,7 +34,11 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ deviceId }: SettingsPageProps) {
-  const [subPage, setSubPage] = useState<null | "privacy" | "licenses">(null);
+  const [subPage, _setSubPage] = useState<null | "privacy" | "licenses">(null);
+  const setSubPage = useCallback((page: null | "privacy" | "licenses") => {
+    _setSubPage(page);
+    window.scrollTo(0, 0);
+  }, []);
   const [profile, setProfile] = useState<UserProfile>({
     ...DEFAULT_USER_PROFILE,
     device_id: deviceId,

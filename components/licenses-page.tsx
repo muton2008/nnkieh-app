@@ -3,7 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 
 interface LicensesPageProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 const LICENSE_TEXT = `Apache License
@@ -67,14 +67,16 @@ const DEPENDENCIES: Dep[] = [
 export function LicensesPage({ onBack }: LicensesPageProps) {
   return (
     <div className="h-full overflow-y-auto">
-      <div className="px-5 py-6 max-w-prose mx-auto text-sm text-foreground leading-relaxed">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs text-muted-foreground mb-4 hover:text-foreground transition-colors"
-        >
-          <ArrowLeft size={14} />
-          返回設定
-        </button>
+      <div className="px-5 py-6 pb-24 max-w-prose mx-auto text-sm text-foreground leading-relaxed">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground mb-4 hover:text-foreground transition-colors"
+          >
+            <ArrowLeft size={14} />
+            返回設定
+          </button>
+        )}
 
         <h1 className="font-serif text-xl font-semibold mb-6">開源授權</h1>
 

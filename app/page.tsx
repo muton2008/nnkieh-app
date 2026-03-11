@@ -32,6 +32,11 @@ export default function Page() {
     });
     return () => { cancelled = true; };
   }, []);
+  // 切換分頁時自動回到頂部
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeTab]);
+
   useEffect(() => {
     if (!deviceId) return; // 等 deviceId 準備好再追蹤，數據會更精準
 
