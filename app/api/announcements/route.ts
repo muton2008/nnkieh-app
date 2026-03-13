@@ -2,17 +2,34 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { FetchAnnouncementsResponse } from "@/lib/types/api";
 
+const PAGE_SIZE = 20;
+const MAX_PAGE = 500;
+
+function parsePageParam(raw: string | null): number {
+  const page = Number(raw ?? "1");
+  if (!Number.isInteger(page) || page < 1) return 1;
+  return Math.min(page, MAX_PAGE);
+}
+
+function parseTabParam(raw: string | null): "all" | "important" | number {
+  if (!raw || raw === "all") return "all";
+  if (raw === "important") return "important";
+  const category = Number(raw);
+  if (!Number.isInteger(category) || category < 0 || category > 6) return "all";
+  return category;
+}
+
 export async function GET(request: Request) {
   const { searchParams} = new URL(request.url);
   
   const queryText = searchParams.get('q')?.trim()
     .replace(/[^\u4e00-\u9fffA-Za-z0-9\s\-]/g, "")  // 僅保留中文、英數、空白、連字號，防止 PostgREST filter injection
-    .slice(0, 100) || "";        // 限制長度
-  const page = parseInt(searchParams.get('page') || '1');
-  const tab = searchParams.get('tab') || 'all';
+    .slice(0, 100) || "";
+  const page = parsePageParam(searchParams.get('page'));
+  const tab = parseTabParam(searchParams.get('tab'));
   
-  const offset = (page - 1) * 20;
-  const size = 20;
+  const offset = (page - 1) * PAGE_SIZE;
+  const size = PAGE_SIZE;
   
   const from = offset;
   const to = from + size - 1;
@@ -31,11 +48,8 @@ export async function GET(request: Request) {
 
     if (tab === 'important') {
       query = query.eq('importance', 1);
-    } else if (tab !== 'all') {
-      const categoryId = parseInt(tab);
-      if (!isNaN(categoryId)) {
-        query = query.eq('category', categoryId);
-      }
+    } else if (typeof tab === 'number') {
+      query = query.eq('category', tab);
     }
 
     const { data, error, count } = await query.range(from, to);

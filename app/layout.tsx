@@ -5,6 +5,7 @@ import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { CapacitorInit } from "@/components/capacitor-init";
+import { Toaster } from "@/components/ui/toaster";
 
 const notoSans = Noto_Sans_TC({
   subsets: ["latin"],
@@ -52,6 +53,7 @@ export default function RootLayout({
         <div className="mx-auto max-w-[450px] min-h-screen bg-background relative shadow-sm">
           {children}
         </div>
+        <Toaster />
       </body>
     </html>
   );

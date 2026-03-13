@@ -229,6 +229,10 @@ export interface FetchAnnouncementsResponse {
   updated_at: string;
 }
 
+export interface FetchAnnouncementByIdResponse {
+  announcement: Announcement;
+}
+
 // ============================================================
 // 4. 交通資訊 (Transport)
 // ============================================================

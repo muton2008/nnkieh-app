@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Clock, ExternalLink, FileDown, Paperclip, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -20,10 +20,13 @@ import {
   CATEGORY_BG_COLORS,
 } from "@/lib/types/announcement";
 import {
+  ApiError,
   fetchAnnouncements,
+  fetchAnnouncementByPostId,
   getReadAnnouncementIds,
   markAnnouncementAsRead,
 } from "@/lib/api-client";
+import { toast } from "@/hooks/use-toast";
 
 // --- UI Constants ---
 const FILTER_TABS: { id: number | "all" | "important"; label: string }[] = [
@@ -64,7 +67,17 @@ const parseAnnouncementContent = (fullContent: string | null) => {
   return { mainText, parsedAttachments };
 };
 
-export function NewsPage() {
+interface NewsPageProps {
+  /** 由通知導入時指定公告 post_id */
+  focusAnnouncementId?: number | null;
+  /** 每次通知觸發遞增，確保可重複打開同一則公告 */
+  focusAnnouncementSignal?: number;
+}
+
+export function NewsPage({
+  focusAnnouncementId,
+  focusAnnouncementSignal = 0,
+}: NewsPageProps) {
   const [loading, setLoading] = useState(true);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [readIds, setReadIds] = useState<Set<number>>(new Set());
@@ -76,6 +89,7 @@ export function NewsPage() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const announcementsRef = useRef<Announcement[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,15 +106,12 @@ export function NewsPage() {
         setTotal(data.total);
         setTotalPages(data.totalPages);
         setHasMore(data.hasMore);
-        console.log('[NewsPage] Loaded:', {
-          total: data.total,
-          totalPages: data.totalPages,
-          hasMore: data.hasMore,
-          page: page,
-          announcements: data.announcements.length
-        });
       } catch (e) {
         console.error("[NewsPage] fetch error:", e);
+        toast({
+          title: "公告載入失敗",
+          description: "請檢查網路連線後再試。",
+        });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -114,6 +125,10 @@ export function NewsPage() {
     setReadIds(getReadAnnouncementIds());
   }, []);
 
+  useEffect(() => {
+    announcementsRef.current = announcements;
+  }, [announcements]);
+
   // 當篩選條件改變時，重置到第一頁
   useEffect(() => {
     if (page !== 1) {
@@ -126,6 +141,38 @@ export function NewsPage() {
     setReadIds(getReadAnnouncementIds());
     setSelectedArticle(article);
   }, []);
+
+  useEffect(() => {
+    if (!focusAnnouncementId || focusAnnouncementSignal === 0) return;
+
+    let cancelled = false;
+
+    const openFromNotification = async () => {
+      const inCurrentList = announcementsRef.current.find((item) => item.post_id === focusAnnouncementId);
+      if (inCurrentList) {
+        handleOpen(inCurrentList);
+        return;
+      }
+
+      try {
+        const article = await fetchAnnouncementByPostId(focusAnnouncementId);
+        if (!cancelled) {
+          handleOpen(article);
+        }
+      } catch (error) {
+        if (!(error instanceof ApiError) || (error.status !== 400 && error.status !== 404)) {
+          console.error("[NewsPage] fetch announcement by id failed:", error);
+        }
+        toast({
+          title: "無法開啟指定公告",
+          description: "公告可能已下架，請改由列表查看最新內容。",
+        });
+      }
+    };
+
+    openFromNotification();
+    return () => { cancelled = true; };
+  }, [focusAnnouncementId, focusAnnouncementSignal, handleOpen]);
 
   const formattedDate = (dateStr: string) =>
     new Date(dateStr).toLocaleDateString("zh-TW", {
@@ -297,7 +344,12 @@ export function NewsPage() {
       )}
 
       {/* Article detail dialog */}
-      <Dialog open={!!selectedArticle} onOpenChange={() => setSelectedArticle(null)}>
+      <Dialog
+        open={!!selectedArticle}
+        onOpenChange={(open) => {
+          if (!open) setSelectedArticle(null);
+        }}
+      >
         {(() => {
           if (!selectedArticle) return null;
           

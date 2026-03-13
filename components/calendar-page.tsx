@@ -66,6 +66,7 @@ import {
 } from "@/lib/api-client";
 import { syncCalendarReminders } from "@/lib/reminders";
 import { syncExamWidgetData } from "@/lib/timetable-widget";
+import { toast } from "@/hooks/use-toast";
 
 dayjs.extend(isBetween);
 dayjs.locale("zh-tw");
@@ -384,9 +385,18 @@ interface CalendarPageProps {
   deviceId: string;
   /** 長按盾牌時呼叫 → 開啟 ApproveDrawer (B端核准) */
   onOpenApproveDrawer?: () => void;
+  /** 由通知導入時，指定要聚焦的日期 (YYYY-MM-DD) */
+  focusDate?: string | null;
+  /** 每次通知觸發會遞增，避免相同日期無法再次跳轉 */
+  focusDateSignal?: number;
 }
 
-export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProps) {
+export function CalendarPage({
+  deviceId,
+  onOpenApproveDrawer,
+  focusDate,
+  focusDateSignal = 0,
+}: CalendarPageProps) {
   const { isAdminMode, session, disableAdminMode } = useAdmin();
   const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
@@ -413,6 +423,8 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
   const [showShieldMenu, setShowShieldMenu] = useState(false);
   const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [showWhitelistDrawer, setShowWhitelistDrawer] = useState(false);
+  const lastFocusSignalRef = useRef(0);
+  const isViewingCurrentMonth = currentMonth.isSame(dayjs(), "month");
 
   // --- Data Loading ---
   useEffect(() => {
@@ -439,6 +451,10 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         }
       } catch (e) {
         console.error("[CalendarPage] load error:", e);
+        toast({
+          title: "行事曆載入失敗",
+          description: "請檢查網路連線後再試。",
+        });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -468,6 +484,22 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
     }, 2000);
     return () => clearTimeout(timer);
   }, [schoolEvents, privateEvents, loading]);
+
+  // 由通知導頁：聚焦指定日期
+  useEffect(() => {
+    if (!focusDate || focusDateSignal <= lastFocusSignalRef.current) return;
+    lastFocusSignalRef.current = focusDateSignal;
+    const parsed = dayjs(focusDate);
+    if (!parsed.isValid()) {
+      toast({
+        title: "日期格式不正確",
+        description: "無法跳轉到指定日期，已保留在目前畫面。",
+      });
+      return;
+    }
+    setCurrentMonth(parsed);
+    setSelectedDate(parsed);
+  }, [focusDate, focusDateSignal]);
 
   // --- Combined Events ---
   const allEvents = useMemo(
@@ -550,13 +582,19 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
     // 驗證日期與時間
     const effectiveEndDate = newEndDate || newDate;
     if (effectiveEndDate < newDate) {
-      alert("結束日期不可早於開始日期");
+      toast({
+        title: "日期設定有誤",
+        description: "結束日期不可早於開始日期。",
+      });
       return;
     }
     const effectiveStart = newStartTime || "00:00";
     const effectiveEnd = newEndTime || "23:59";
     if (newDate === effectiveEndDate && effectiveEnd < effectiveStart) {
-      alert("結束時間不可早於開始時間");
+      toast({
+        title: "時間設定有誤",
+        description: "結束時間不可早於開始時間。",
+      });
       return;
     }
 
@@ -591,7 +629,10 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         }
       } catch (e) {
         console.error("[CalendarPage] save school event error:", e);
-        alert("儲存失敗，請確認管理員授權是否有效");
+        toast({
+          title: "儲存失敗",
+          description: "請稍後再試，或重新進行管理員授權。",
+        });
       } finally {
         setIsSaving(false);
       }
@@ -638,6 +679,10 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
         }
       } catch (e) {
         console.error("[CalendarPage] delete error:", e);
+        toast({
+          title: "刪除失敗",
+          description: "請稍後再試。",
+        });
       }
     }
   };
@@ -778,6 +823,17 @@ export function CalendarPage({ deviceId, onOpenApproveDrawer }: CalendarPageProp
           <ChevronRight size={18} strokeWidth={1.5} />
         </button>
       </div>
+
+      {!isViewingCurrentMonth && (
+        <div className="px-5 -mt-1 pb-2 flex justify-end">
+          <button
+            onClick={goToToday}
+            className="text-[11px] px-2.5 py-1 rounded-sm border border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+          >
+            回到本月
+          </button>
+        </div>
+      )}
 
       {/* Calendar Grid */}
       <div className="px-4 pb-3">

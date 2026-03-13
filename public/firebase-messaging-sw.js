@@ -26,11 +26,23 @@ messaging.onBackgroundMessage((payload) => {
     data: data, // 保留 data payload 供 notificationclick 使用
   };
 
-  // 如果是授權請求通知，帶上 auth_request_id
+  // 自動補齊深連結 URL（若後端沒帶 link）
   if (data.type === 'auth_request' && data.auth_request_id) {
     notificationOptions.data = {
       ...data,
       url: `/?auth_request_id=${data.auth_request_id}`,
+    };
+  } else if (data.type === 'calendar' && (data.calendar_date || data.date)) {
+    const date = data.calendar_date || data.date;
+    notificationOptions.data = {
+      ...data,
+      url: `/?type=calendar&calendar_date=${encodeURIComponent(date)}`,
+    };
+  } else if (data.type === 'announcement' && (data.announcement_id || data.post_id)) {
+    const announcementId = data.announcement_id || data.post_id;
+    notificationOptions.data = {
+      ...data,
+      url: `/?type=announcement&announcement_id=${encodeURIComponent(announcementId)}`,
     };
   }
 
@@ -50,13 +62,10 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus();
-          // 發送訊息給前端，觸發 ApproveDrawer
-          if (data.type === 'auth_request') {
-            client.postMessage({
-              type: 'auth_request',
-              auth_request_id: data.auth_request_id,
-            });
-          }
+          // 發送訊息給前端，統一由 app/page.tsx 決定跳轉邏輯
+          client.postMessage({
+            payload: data,
+          });
           return;
         }
       }

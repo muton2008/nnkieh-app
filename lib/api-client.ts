@@ -11,6 +11,7 @@ import {
   JoinClassResponse,
   FetchSchoolCalendarResponse,
   FetchAnnouncementsResponse,
+  FetchAnnouncementByIdResponse,
   TransportDataResponse,
   AddNoteRequest,
   AddNoteResponse,
@@ -219,6 +220,15 @@ export async function fetchAnnouncements(
   }
   
   return request<FetchAnnouncementsResponse>(`/api/announcements?${params.toString()}`);
+}
+
+/** 依 post_id 取得單篇公告（通知導頁使用） */
+export async function fetchAnnouncementByPostId(postId: number) {
+  if (!Number.isInteger(postId) || postId <= 0) {
+    throw new ApiError("Invalid announcement id", 400);
+  }
+  const data = await request<FetchAnnouncementByIdResponse>(`/api/announcements/${postId}`);
+  return data.announcement;
 }
 
 /** 取得已讀公告 ID 集合 */

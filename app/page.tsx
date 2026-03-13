@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import dayjs from "dayjs";
 import { BottomNav } from "@/components/bottom-nav";
 import { TabId } from "@/lib/types/common";
 import { HomePage } from "@/components/home-page";
@@ -14,13 +15,223 @@ import { ApproveDrawer } from "@/components/approve-drawer";
 import { UpdateDialog } from "@/components/update-dialog";
 import { isNative, isPluginAvailable } from "@/lib/platform";
 import { getOrRegisterDeviceId } from "@/lib/device-id";
+import { toast } from "@/hooks/use-toast";
+
+type NotificationPayload = Record<string, unknown>;
+
+function parseAnnouncementId(raw: unknown): number | null {
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
+  const num = Number(raw);
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+}
+
+function parseCalendarDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const date = raw.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = dayjs(date);
+  if (!parsed.isValid() || parsed.format("YYYY-MM-DD") !== date) return null;
+  return date;
+}
+
+function parsePayloadFromLink(rawLink: unknown): NotificationPayload {
+  if (typeof rawLink !== "string") return {};
+  try {
+    const url = new URL(rawLink, window.location.origin);
+    const path = url.pathname.toLowerCase();
+    const hash = url.hash.toLowerCase();
+    const tabFromPath: TabId | undefined = path.includes("calendar")
+      ? "calendar"
+      : path.includes("news") || path.includes("announcement")
+        ? "news"
+        : path.includes("settings")
+          ? "settings"
+          : path.includes("transport")
+            ? "transport"
+            : path.includes("timetable")
+              ? "timetable"
+              : path.includes("home")
+                ? "home"
+                : undefined;
+    const tabFromHash: TabId | undefined = hash.includes("calendar")
+      ? "calendar"
+      : hash.includes("news") || hash.includes("announcement")
+        ? "news"
+        : undefined;
+
+    return {
+      type: url.searchParams.get("type") ?? undefined,
+      auth_request_id: url.searchParams.get("auth_request_id") ?? undefined,
+      announcement_id: url.searchParams.get("announcement_id") ?? url.searchParams.get("post_id") ?? undefined,
+      calendar_date: url.searchParams.get("calendar_date") ?? url.searchParams.get("target_date") ?? url.searchParams.get("date") ?? undefined,
+      tab: url.searchParams.get("tab") ?? tabFromPath ?? tabFromHash,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function parseNotificationType(raw: unknown): "auth_request" | "announcement" | "calendar" | "" {
+  if (typeof raw !== "string") return "";
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "auth_request" || normalized === "announcement" || normalized === "calendar") {
+    return normalized;
+  }
+  return "";
+}
+
+function clearNotificationQueryParams() {
+  const url = new URL(window.location.href);
+  const paramsToRemove = [
+    "type",
+    "auth_request_id",
+    "announcement_id",
+    "post_id",
+    "calendar_date",
+    "target_date",
+    "date",
+  ];
+  paramsToRemove.forEach((p) => url.searchParams.delete(p));
+  window.history.replaceState({}, "", url.pathname + url.search);
+}
+
+function parseTabId(raw: unknown): TabId | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().toLowerCase();
+  if (value === "home" || value === "timetable" || value === "transport" || value === "calendar" || value === "news" || value === "settings") {
+    return value;
+  }
+  return null;
+}
+
+function pickFirstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function pickAnnouncementId(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = parseAnnouncementId(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function pickCalendarDate(...values: unknown[]): string | null {
+  for (const value of values) {
+    const parsed = parseCalendarDate(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function pickTabId(...values: unknown[]): TabId | null {
+  for (const value of values) {
+    const parsed = parseTabId(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
 
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [authRequestId, setAuthRequestId] = useState<string | null>(null);
   const [forceApproveOpen, setForceApproveOpen] = useState(false);
+  const [calendarFocusDate, setCalendarFocusDate] = useState<string | null>(null);
+  const [calendarFocusSignal, setCalendarFocusSignal] = useState(0);
+  const [announcementFocusId, setAnnouncementFocusId] = useState<number | null>(null);
+  const [announcementFocusSignal, setAnnouncementFocusSignal] = useState(0);
   const prevTabRef = useRef<TabId>(activeTab);
+  const invalidNotificationToastAtRef = useRef(0);
+
+  const notifyInvalidNotification = useCallback(() => {
+    const now = Date.now();
+    if (now - invalidNotificationToastAtRef.current < 2500) return;
+    invalidNotificationToastAtRef.current = now;
+    toast({
+      title: "通知內容無法開啟",
+      description: "請稍後再試，或手動前往對應頁面查看。",
+    });
+  }, []);
+
+  const handleNotificationNavigation = useCallback((payload: NotificationPayload) => {
+    const fromLink = parsePayloadFromLink(payload.link);
+    const fromUrl = parsePayloadFromLink(payload.url);
+
+    const explicitType = parseNotificationType(
+      pickFirstString(payload.type, fromUrl.type, fromLink.type)
+    );
+    const authReqId = pickFirstString(payload.auth_request_id, fromUrl.auth_request_id, fromLink.auth_request_id);
+    const announcementId = pickAnnouncementId(
+      payload.announcement_id,
+      payload.post_id,
+      fromUrl.announcement_id,
+      fromLink.announcement_id
+    );
+    const calendarDate = pickCalendarDate(
+      payload.calendar_date,
+      payload.target_date,
+      payload.date,
+      fromUrl.calendar_date,
+      fromLink.calendar_date
+    );
+    const tab = pickTabId(payload.tab, fromUrl.tab, fromLink.tab);
+
+    let type = explicitType;
+    if (!type) {
+      if (authReqId) type = "auth_request";
+      else if (announcementId) type = "announcement";
+      else if (calendarDate) type = "calendar";
+    }
+
+    if (type === "auth_request" && authReqId) {
+      setAuthRequestId(authReqId);
+      setActiveTab("calendar");
+      clearNotificationQueryParams();
+      return;
+    }
+
+    if ((type === "announcement" && announcementId) || (!type && announcementId)) {
+      setAnnouncementFocusId(announcementId);
+      setAnnouncementFocusSignal((s) => s + 1);
+      setActiveTab("news");
+      clearNotificationQueryParams();
+      return;
+    }
+
+    if ((type === "calendar" && calendarDate) || (!type && calendarDate)) {
+      setCalendarFocusDate(calendarDate);
+      setCalendarFocusSignal((s) => s + 1);
+      setActiveTab("calendar");
+      clearNotificationQueryParams();
+      return;
+    }
+
+    // 僅指定頁籤（無特定內容）時也可精確跳頁
+    if (!type && tab) {
+      setActiveTab(tab);
+      clearNotificationQueryParams();
+      return;
+    }
+
+    // 向下相容：只帶 auth_request_id 但沒 type
+    if (authReqId) {
+      setAuthRequestId(authReqId);
+      setActiveTab("calendar");
+      clearNotificationQueryParams();
+      return;
+    }
+
+    if (explicitType === "announcement" || explicitType === "calendar" || explicitType === "auth_request") {
+      notifyInvalidNotification();
+    }
+  }, [notifyInvalidNotification]);
 
   // Device 註冊 / 初始化
   useEffect(() => {
@@ -59,13 +270,14 @@ export default function Page() {
   // 監聽 URL 參數 auth_request_id（來自 FCM 通知點擊）
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const reqId = params.get("auth_request_id");
-    if (reqId) {
-      setAuthRequestId(reqId);
-      // 自動切換到行事曆分頁（讓管理員知道上下文）
-      setActiveTab("calendar");
-    }
-  }, []);
+    handleNotificationNavigation({
+      type: params.get("type") ?? undefined,
+      auth_request_id: params.get("auth_request_id") ?? undefined,
+      announcement_id: params.get("announcement_id") ?? params.get("post_id") ?? undefined,
+      calendar_date: params.get("calendar_date") ?? params.get("target_date") ?? params.get("date") ?? undefined,
+      tab: params.get("tab") ?? undefined,
+    });
+  }, [handleNotificationNavigation]);
 
   // 監聯 FCM 前景訊息（Service Worker message）
   useEffect(() => {
@@ -77,10 +289,7 @@ export default function Page() {
           'pushNotificationReceived',
           (notification) => {
             const data = notification.data || {};
-            if (data.type === 'auth_request' && data.auth_request_id) {
-              setAuthRequestId(data.auth_request_id);
-              setActiveTab('calendar');
-            }
+            handleNotificationNavigation(data);
           }
         );
         // 點擊推播通知
@@ -88,10 +297,7 @@ export default function Page() {
           'pushNotificationActionPerformed',
           (action) => {
             const data = action.notification.data || {};
-            if (data.type === 'auth_request' && data.auth_request_id) {
-              setAuthRequestId(data.auth_request_id);
-              setActiveTab('calendar');
-            }
+            handleNotificationNavigation(data);
           }
         );
         cleanup = () => {
@@ -109,15 +315,18 @@ export default function Page() {
 
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
-      if (data?.type === "auth_request" && data?.auth_request_id) {
-        setAuthRequestId(data.auth_request_id);
-        setActiveTab("calendar");
+      if (data && typeof data === "object" && "payload" in data) {
+        handleNotificationNavigation((data as { payload?: NotificationPayload }).payload || {});
+        return;
+      }
+      if (data && typeof data === "object") {
+        handleNotificationNavigation(data as NotificationPayload);
       }
     };
 
     navigator.serviceWorker.addEventListener("message", handleMessage);
     return () => navigator.serviceWorker.removeEventListener("message", handleMessage);
-  }, []);
+  }, [handleNotificationNavigation]);
 
   // Android 實體返回鍵：回到首頁，若已在首頁則最小化
   useEffect(() => {
@@ -161,9 +370,21 @@ export default function Page() {
       case "transport":
         return <TransportPage />;
       case "calendar":
-        return <CalendarPage deviceId={deviceId} onOpenApproveDrawer={handleOpenApproveDrawer} />;
+        return (
+          <CalendarPage
+            deviceId={deviceId}
+            onOpenApproveDrawer={handleOpenApproveDrawer}
+            focusDate={calendarFocusDate}
+            focusDateSignal={calendarFocusSignal}
+          />
+        );
       case "news":
-        return <NewsPage />;
+        return (
+          <NewsPage
+            focusAnnouncementId={announcementFocusId}
+            focusAnnouncementSignal={announcementFocusSignal}
+          />
+        );
       case "settings":
         return <SettingsPage deviceId={deviceId} />;
       default:
