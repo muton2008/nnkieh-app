@@ -383,6 +383,7 @@ export default function Page() {
           <NewsPage
             focusAnnouncementId={announcementFocusId}
             focusAnnouncementSignal={announcementFocusSignal}
+            onConsumed={() => setAnnouncementFocusId(null)}
           />
         );
       case "settings":

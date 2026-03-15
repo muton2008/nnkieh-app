@@ -422,7 +422,8 @@ async function sendFCMBroadcast(
   link: string,
   description: string,
   _firebaseApiKey: string, // 不再使用
-  fcmTokens: string[]
+  fcmTokens: string[],
+  postId: string | null = null
 ): Promise<void> {
   if (!fcmTokens.length) {
     console.warn("⚠️ 無 FCM token，無法發送 FCM 訊息");
@@ -482,13 +483,17 @@ async function sendFCMBroadcast(
                 body: shortDescription,
               },
               data: {
-                link: link,
                 title: title,
+                type: "announcement",
+                announcement_id: postId ? String(postId) : "",
+                post_id: postId ? String(postId) : "",
+                link: postId ? `/?type=announcement&announcement_id=${postId}` : `/?tab=news`,
+                original_link: link,
               },
               // 網頁推播：點擊後開啟連結
               webpush: {
                 fcm_options: {
-                  link: link,
+                  link: postId ? `/?type=announcement&announcement_id=${postId}` : `/?tab=news`,
                 },
               },
               // Android：點擊後開啟連結
@@ -838,7 +843,8 @@ async function runTask(
               ann.url,
               ann.description,
               firebaseApiKey,
-              eligibleTokens
+              eligibleTokens,
+              ann.post_id // 傳入 post_id 組合深連結
             );
           } else {
             console.log(`公告 "${ann.title}" 無符合條件的用戶接收`);

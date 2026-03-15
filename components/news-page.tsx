@@ -72,11 +72,14 @@ interface NewsPageProps {
   focusAnnouncementId?: number | null;
   /** 每次通知觸發遞增，確保可重複打開同一則公告 */
   focusAnnouncementSignal?: number;
+  /** 當公告被成功開啟時觸發，用於清除上層狀態避免重複開啟 */
+  onConsumed?: () => void;
 }
 
 export function NewsPage({
   focusAnnouncementId,
   focusAnnouncementSignal = 0,
+  onConsumed,
 }: NewsPageProps) {
   const [loading, setLoading] = useState(true);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -140,7 +143,10 @@ export function NewsPage({
     markAnnouncementAsRead(article.post_id);
     setReadIds(getReadAnnouncementIds());
     setSelectedArticle(article);
-  }, []);
+    if (onConsumed) {
+      onConsumed();
+    }
+  }, [onConsumed]);
 
   useEffect(() => {
     if (!focusAnnouncementId || focusAnnouncementSignal === 0) return;
