@@ -21,7 +21,7 @@ export interface Announcement {
 
 export type AnnouncementCategory = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-export const CATEGORY_LABELS: Record<number, string> = {
+export const CATEGORY_LABELS: Record<AnnouncementCategory, string> = {
   0: '考試與考程',
   1: '學習歷程/自主學習/社團',
   2: '活動與競賽',
@@ -31,7 +31,7 @@ export const CATEGORY_LABELS: Record<number, string> = {
   6: '教師公告/研習',
 };
 
-export const CATEGORY_SHORT: Record<number, string> = {
+export const CATEGORY_SHORT: Record<AnnouncementCategory, string> = {
   0: '考試',
   1: '學習',
   2: '活動',
@@ -41,7 +41,7 @@ export const CATEGORY_SHORT: Record<number, string> = {
   6: '教師',
 };
 
-export const CATEGORY_COLORS: Record<number, string> = {
+export const CATEGORY_COLORS: Record<AnnouncementCategory, string> = {
   0: 'border-l-amber-400',
   1: 'border-l-emerald-400',
   2: 'border-l-sky-400',
@@ -51,7 +51,7 @@ export const CATEGORY_COLORS: Record<number, string> = {
   6: 'border-l-teal-400',
 };
 
-export const CATEGORY_BG_COLORS: Record<number, string> = {
+export const CATEGORY_BG_COLORS: Record<AnnouncementCategory, string> = {
   0: 'bg-amber-50 text-amber-700 border-amber-200',
   1: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   2: 'bg-sky-50 text-sky-700 border-sky-200',
