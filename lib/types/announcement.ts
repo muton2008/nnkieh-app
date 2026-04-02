@@ -5,7 +5,7 @@ export interface Announcement {
   id: number;
   title: string;
   content: string | null;
-  category: number;
+  category: AnnouncementCategory;
   importance: number;
   division: SchoolDivision[];
   publish_date: string;
