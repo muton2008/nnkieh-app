@@ -20,13 +20,23 @@ import {
   GetUserProfileResponse,
   RegisterDeviceRequest,
   RegisterDeviceResponse,
+  CreateAuthRequest,
   CreateAuthResponse,
   ApproveAuthRequest,
   ApproveAuthResponse,
   CheckAuthStatusResponse,
+  FetchPendingRequestsRequest,
   FetchPendingRequestsResponse,
-  SaveSchoolCalendarResponse
+  SaveSchoolCalendarResponse,
+  WebAuthnAuthOptionsResponse,
+  WebAuthnPendingOptionsResponse,
+  WebAuthnRequestOptionsResponse,
+  WebAuthnRegistrationOptionsResponse,
+  WebAuthnRegistrationStatusResponse,
+  WebAuthnRegistrationVerifyRequest,
+  WebAuthnRegistrationVerifyResponse,
 } from "@/lib/types/api";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { SchoolCalendarEvent, PrivateCalendarEvent, AdminSession } from "@/lib/types/calendar";
 import { APP_VERSION } from "./version";
 import { getApiBaseUrl } from "./platform";
@@ -324,10 +334,38 @@ export function getAdminSession(): AdminSession | null {
 }
 
 /** 發起雙人授權請求 */
-export async function createPeerAuth(deviceId: string): Promise<CreateAuthResponse> {
+export async function createPeerAuth(
+  deviceId: string,
+  webauthnAssertion?: AuthenticationResponseJSON
+): Promise<CreateAuthResponse> {
+  const req: CreateAuthRequest = {
+    device_id: deviceId,
+    ...(webauthnAssertion ? { webauthn_assertion: webauthnAssertion } : {}),
+  };
+
   return request<CreateAuthResponse>("/api/auth/request", {
     method: "POST",
-    body: JSON.stringify({ device_id: deviceId }),
+    body: JSON.stringify(req),
+  });
+}
+
+function getOptionalAdminHeaders(expectedDeviceId: string): HeadersInit | undefined {
+  const session = getAdminSession();
+  if (!session) return undefined;
+  if (session.deviceId !== expectedDeviceId) return undefined;
+  return {
+    Authorization: `Bearer ${session.accessToken}`,
+    "X-Device-ID": session.deviceId,
+  };
+}
+
+/** 取得發起授權流程需要的 WebAuthn 驗證 options */
+export async function getWebAuthnRequestOptions(
+  adminDeviceId: string
+): Promise<WebAuthnRequestOptionsResponse> {
+  return request<WebAuthnRequestOptionsResponse>("/api/auth/webauthn/request/options", {
+    method: "POST",
+    body: JSON.stringify({ admin_device_id: adminDeviceId }),
   });
 }
 
@@ -335,9 +373,15 @@ export async function createPeerAuth(deviceId: string): Promise<CreateAuthRespon
 export async function approvePeerAuth(
   requestId: string,
   inputCode: string,
-  adminDeviceId: string
+  adminDeviceId: string,
+  webauthnAssertion?: AuthenticationResponseJSON
 ): Promise<ApproveAuthResponse & { status: number }> {
-  const req: ApproveAuthRequest = { requestId, inputCode, admin_device_id: adminDeviceId };
+  const req: ApproveAuthRequest = {
+    requestId,
+    inputCode,
+    admin_device_id: adminDeviceId,
+    ...(webauthnAssertion ? { webauthn_assertion: webauthnAssertion } : {}),
+  };
   const res = await rawRequest("/api/auth/approve", {
     method: "POST",
     body: JSON.stringify(req),
@@ -347,13 +391,78 @@ export async function approvePeerAuth(
 }
 
 /** 取得待核准的授權請求列表 */
-export async function fetchPendingRequests(deviceId: string): Promise<FetchPendingRequestsResponse> {
-  return request<FetchPendingRequestsResponse>(`/api/auth/pending?device_id=${encodeURIComponent(deviceId)}`);
+export async function fetchPendingRequests(
+  adminDeviceId: string,
+  webauthnAssertion: AuthenticationResponseJSON
+): Promise<FetchPendingRequestsResponse> {
+  const payload: FetchPendingRequestsRequest = {
+    admin_device_id: adminDeviceId,
+    webauthn_assertion: webauthnAssertion,
+  };
+
+  return request<FetchPendingRequestsResponse>("/api/auth/pending", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 取得 WebAuthn 註冊 options */
+export async function getWebAuthnRegistrationOptions(
+  adminDeviceId: string
+): Promise<WebAuthnRegistrationOptionsResponse> {
+  return request<WebAuthnRegistrationOptionsResponse>("/api/auth/webauthn/register/options", {
+    method: "POST",
+    headers: getOptionalAdminHeaders(adminDeviceId),
+    body: JSON.stringify({ admin_device_id: adminDeviceId }),
+  });
+}
+
+/** 驗證 WebAuthn 註冊結果 */
+export async function verifyWebAuthnRegistration(
+  payload: WebAuthnRegistrationVerifyRequest
+): Promise<WebAuthnRegistrationVerifyResponse> {
+  return request<WebAuthnRegistrationVerifyResponse>("/api/auth/webauthn/register/verify", {
+    method: "POST",
+    headers: getOptionalAdminHeaders(payload.admin_device_id),
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 取得核准流程需要的 WebAuthn 驗證 options */
+export async function getWebAuthnAuthOptions(
+  requestId: string,
+  adminDeviceId: string
+): Promise<WebAuthnAuthOptionsResponse> {
+  return request<WebAuthnAuthOptionsResponse>("/api/auth/webauthn/auth/options", {
+    method: "POST",
+    body: JSON.stringify({ requestId, admin_device_id: adminDeviceId }),
+  });
+}
+
+/** 取得待核准清單前的 WebAuthn 驗證 options */
+export async function getWebAuthnPendingOptions(
+  adminDeviceId: string
+): Promise<WebAuthnPendingOptionsResponse> {
+  return request<WebAuthnPendingOptionsResponse>("/api/auth/webauthn/pending/options", {
+    method: "POST",
+    body: JSON.stringify({ admin_device_id: adminDeviceId }),
+  });
 }
 
 /** 輪詢或檢查授權狀態 (發起端 Editor 用) */
-export async function checkAuthStatus(requestId: string): Promise<CheckAuthStatusResponse> {
-  const res = await request<CheckAuthStatusResponse>(`/api/auth/status?request_id=${encodeURIComponent(requestId)}`);
+export async function checkAuthStatus(
+  requestId: string,
+  deviceId: string,
+  pollToken: string
+): Promise<CheckAuthStatusResponse> {
+  const res = await request<CheckAuthStatusResponse>("/api/auth/status", {
+    method: "POST",
+    body: JSON.stringify({
+      request_id: requestId,
+      device_id: deviceId,
+      poll_token: pollToken,
+    }),
+  });
   
   // 如果成功拿到 Session (JWT)，直接存入 sessionStorage
   if (res.success && res.session) {
@@ -377,6 +486,7 @@ export async function fetchAdminWhitelist(session: AdminSession): Promise<FetchA
   return request<FetchAdminWhitelistResponse>("/api/admin/whitelist", {
     headers: {
       Authorization: `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId,
     },
   });
 }
@@ -390,6 +500,7 @@ export async function manageAdminWhitelist(
     method: "POST",
     headers: {
       Authorization: `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId,
     },
     body: JSON.stringify(data),
   });
@@ -404,6 +515,7 @@ export async function handoverSuperAdmin(
     method: "POST",
     headers: {
       Authorization: `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId,
     },
     body: JSON.stringify({ new_super_admin_id: newSuperAdminId } as HandoverRequest),
   });
@@ -436,4 +548,13 @@ export async function fetchTransportData(forceRefresh = false): Promise<Transpor
   const data = await request<TransportDataResponse>(`/api/transport?_t=${Date.now()}`);
   setCachedData("cache_transport", data);
   return data;
+}
+
+/** 取得 WebAuthn 綁定狀態 */
+export async function getWebAuthnRegistrationStatus(
+  adminDeviceId: string
+): Promise<WebAuthnRegistrationStatusResponse> {
+  return request<WebAuthnRegistrationStatusResponse>(
+    `/api/auth/webauthn/register/status?admin_device_id=${encodeURIComponent(adminDeviceId)}`
+  );
 }

@@ -47,6 +47,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [changelogVersion, setChangelogVersion] = useState(CHANGELOG[CHANGELOG.length - 1]?.version || "");
 
   const copyDeviceId = useCallback(async () => {
     try {
@@ -345,11 +346,23 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
 
         {/* 更新內容 */}
         <section className="bg-card border border-border rounded-sm p-4">
-          <h2 className="text-xs font-medium text-foreground mb-2">更新內容</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs font-medium text-foreground">更新內容</h2>
+            <select
+              value={changelogVersion}
+              onChange={(e) => setChangelogVersion(e.target.value)}
+              className="bg-transparent border border-border/50 text-[10px] rounded outline-none p-1 text-muted-foreground/70"
+            >
+              {CHANGELOG.map((entry) => (
+                <option key={entry.version} value={entry.version}>
+                  v{entry.version}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="text-[11px] text-muted-foreground/70 font-light space-y-3">
-            {CHANGELOG.map((entry) => (
+            {CHANGELOG.filter(e => e.version === changelogVersion).map((entry) => (
               <div key={entry.version}>
-                <p className="text-muted-foreground/50 font-medium mb-1">v{entry.version}</p>
                 <ul className="list-disc list-inside space-y-0.5 pl-0.5">
                   {entry.changes.map((c, i) => (
                     <li key={i}>{c}</li>

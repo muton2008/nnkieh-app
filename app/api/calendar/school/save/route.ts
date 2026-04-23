@@ -87,6 +87,16 @@ export async function POST(request: Request) {
 
     const supabase = await createClient();
 
+    const { data: operator } = await supabase
+      .from("admin_users")
+      .select("role")
+      .eq("device_id", payload.deviceId)
+      .single();
+
+    if (!operator || !["editor", "admin", "super_admin"].includes(operator.role)) {
+      return NextResponse.json({ success: false, message: "權限不足或已被撤權" }, { status: 403 });
+    }
+
     // Upsert：若為臨時 ID 則不傳入 id 欄位，由 DB 自動生成 UUID；否則編輯舊有 ID
     const { data, error } = await supabase
       .from("school_calendar_events")

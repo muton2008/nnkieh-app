@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   Megaphone,
   ChevronRight,
   Settings,
+  RefreshCw,
 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import type { TabId } from "@/lib/types/common";
@@ -38,7 +39,7 @@ const QUICK_LINKS: { id: TabId; label: string; icon: any; bg: string }[] = [
   { id: "calendar", label: "行事曆", icon: CalendarDays, bg: "bg-macaron-yellow" },
   { id: "news", label: "公告", icon: Megaphone, bg: "bg-macaron-blue" },
 ];
-const PERIOD_TIMES = ["08:10", "09:10", "10:10", "11:10", "", "13:10", "14:10", "15:10", "16:20"];
+const PERIOD_TIMES = ["08:10", "09:10", "10:10", "11:10", "", "13:10", "14:10", "15:10", "16:10"];
 
 const CATEGORY_BG: Record<EventCategory, string> = {
   考試: "bg-orange-50",
@@ -69,15 +70,22 @@ function getRandomMessage(): string {
   return GREETING_MESSAGES[Math.floor(Math.random() * GREETING_MESSAGES.length)];
 }
 
-function getTodayString(): string {
-  const d = new Date();
+function getTargetDateInfo() {
+  const now = new Date();
+  if (now.getHours() >= 18) {
+    return { date: new Date(now.getTime() + 24 * 60 * 60 * 1000), isTomorrow: true };
+  }
+  return { date: now, isTomorrow: false };
+}
+
+function getTodayString(d: Date): string {
   const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
   return `${d.getMonth() + 1}/${d.getDate()} 星期${weekdays[d.getDay()]}`;
 }
 
-function getTodayWeekdayKey(): string {
+function getTodayWeekdayKey(d: Date): string {
   const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-  return weekdays[new Date().getDay()];
+  return weekdays[d.getDay()];
 }
 
 interface HomePageProps {
@@ -95,14 +103,15 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
     device_id: deviceId,
   });
   const [profileReady, setProfileReady] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [targetDateInfo] = useState(getTargetDateInfo);
 
   // 輔助函式：將 API 回傳的原始 schedule 轉換成今日首頁顯示格式
-  const processScheduleData = useCallback((scheduleObj: any) => {
-    const dayKey = getTodayWeekdayKey();
+  const processScheduleData = useCallback((scheduleObj: any, date: Date) => {
+    const dayKey = getTodayWeekdayKey(date);
     if (!["一", "二", "三", "四", "五"].includes(dayKey)) return [];
 
-    const now = new Date();
-    const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayDateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const dayArr = scheduleObj[dayKey] || [];
     
     return dayArr.map((c: any, idx: number) => {
@@ -125,6 +134,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
     let cancelled = false;
 
     const loadData = async () => {
+      setIsSyncing(true);
       try {
         // 0. 優先載入用戶 profile（必須在 setLoading(false) 之前，避免 FCM 刷新拿到 DEFAULT）
         const storedProfile = getLocalUserProfile();
@@ -142,7 +152,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
         if (cacheRaw) {
           try {
             const cachedData = JSON.parse(cacheRaw);
-            initialSchedule = processScheduleData(cachedData.schedule || {});
+            initialSchedule = processScheduleData(cachedData.schedule || {}, targetDateInfo.date);
             if (!cancelled) {
               setTodaySchedule(initialSchedule);
               setLoading(false); // 有快取就先關閉載入狀態，提升體感速度
@@ -151,16 +161,39 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
             console.error("Cache parse error", e);
           }
         }
+        
+        const cacheRawCalendar = localStorage.getItem("cache_calendar");
+        let initialCalendar: SchoolCalendarEvent[] = [];
+        if (cacheRawCalendar) {
+          try {
+            const cachedData = JSON.parse(cacheRawCalendar);
+            const today = new Date().toISOString().slice(0, 10);
+            initialCalendar = cachedData
+              .filter((e: SchoolCalendarEvent) => !e.is_deleted && (e.end_date || e.date) >= today)
+              .sort((a: SchoolCalendarEvent, b: SchoolCalendarEvent) => a.date.localeCompare(b.date))
+              .slice(0, 3);
+            if (!cancelled) {
+              setUpcomingEvents(initialCalendar);
+              setLoading(false);
+            }
+          } catch (e) {
+            console.error("Calendar cache parse error", e);
+          }
+        }
 
         // 3. 獲取遠端資料
         const inviteCode = localStorage.getItem("invite_code");
-        if (!inviteCode) return
+        if (!inviteCode) return;
 
-        const remoteData = await fetchTimetable({ invite_code: inviteCode });
+        const [remoteData, cData] = await Promise.all([
+          fetchTimetable({ invite_code: inviteCode }).catch(e => { console.error(e); return null; }),
+          fetchSchoolCalendar().catch(e => { console.error(e); return null; }),
+        ]);
+
         if (cancelled) return;
 
         if (remoteData && remoteData.schedule) {
-          const newSchedule = processScheduleData(remoteData.schedule);
+          const newSchedule = processScheduleData(remoteData.schedule, targetDateInfo.date);
           
           // 4. 比對差異，相異才更新
           if (JSON.stringify(newSchedule) !== JSON.stringify(initialSchedule)) {
@@ -170,14 +203,17 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
         }
 
         // 5. 載入行事曆
-        const cData = await fetchSchoolCalendar();
-        if (!cancelled && cData?.events) {
+        if (cData?.events) {
           const today = new Date().toISOString().slice(0, 10);
           const upcoming = cData.events
             .filter((e: SchoolCalendarEvent) => !e.is_deleted && (e.end_date || e.date) >= today)
             .sort((a: SchoolCalendarEvent, b: SchoolCalendarEvent) => a.date.localeCompare(b.date))
             .slice(0, 3);
-          setUpcomingEvents(upcoming);
+          
+          if (JSON.stringify(upcoming) !== JSON.stringify(initialCalendar)) {
+            setUpcomingEvents(upcoming);
+            localStorage.setItem("cache_calendar", JSON.stringify(cData.events));
+          }
 
           // 同步考試事件到桌面 Widget
           const examEvents = cData.events
@@ -207,13 +243,16 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
       } catch (e) {
         console.error("[HomePage] load error:", e);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setIsSyncing(false);
+        }
       }
     };
 
     loadData();
     return () => { cancelled = true; };
-  }, [deviceId, processScheduleData]);
+  }, [deviceId, processScheduleData, targetDateInfo]);
 
   // 自動檢查和更新 FCM Token
   useEffect(() => {
@@ -260,7 +299,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
             {getGreeting()}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 font-light">
-            {getTodayString()} &middot; {message}
+            {getTodayString(targetDateInfo.date)} &middot; {message}
           </p>
         </div>
         <button onClick={() => onNavigate("settings")} className="p-2 text-muted-foreground/50 hover:text-foreground">
@@ -288,7 +327,12 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-serif text-base font-semibold text-foreground">今日課表</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-serif text-base font-semibold text-foreground">
+              {targetDateInfo.isTomorrow ? "明日課表" : "今日課表"}
+            </h2>
+            {isSyncing && <RefreshCw size={12} className="animate-spin text-muted-foreground/50" />}
+          </div>
           <button onClick={() => onNavigate("timetable")} className="flex items-center gap-0.5 text-xs text-muted-foreground">
             查看完整 <ChevronRight size={14} />
           </button>
@@ -330,7 +374,10 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-serif text-base font-semibold text-foreground">近期活動</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-serif text-base font-semibold text-foreground">近期活動</h2>
+            {isSyncing && <RefreshCw size={12} className="animate-spin text-muted-foreground/50" />}
+          </div>
           <button onClick={() => onNavigate("calendar")} className="flex items-center gap-0.5 text-xs text-muted-foreground">
             查看完整 <ChevronRight size={14} />
           </button>

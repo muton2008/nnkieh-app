@@ -62,7 +62,7 @@ const PERIODS = [
   { label: "5", time: "13:10 - 14:00" },
   { label: "6", time: "14:10 - 15:00" },
   { label: "7", time: "15:10 - 16:00" },
-  { label: "8", time: "16:20 - 17:00" },
+  { label: "8", time: "16:10 - 17:00" },
 ] as const;
 
 const NOTE_CATEGORIES: NoteCategoryMeta[] = [

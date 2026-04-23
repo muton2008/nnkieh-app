@@ -12,7 +12,10 @@ function verifySession(authHeader: string | null): { deviceId: string; role: Adm
 
   const token = authHeader.replace("Bearer ", "");
   try {
-    const payload = jwt.verify(token, secret) as { deviceId: string; role: AdminRole };
+    const payload = jwt.verify(token, secret, { algorithms: ["HS256"] }) as {
+      deviceId: string;
+      role: AdminRole;
+    };
     return { deviceId: payload.deviceId, role: payload.role };
   } catch {
     return null;
@@ -33,8 +36,13 @@ function verifySession(authHeader: string | null): { deviceId: string; role: Adm
 export async function POST(request: Request) {
   try {
     const session = verifySession(request.headers.get("Authorization"));
+    const deviceIdHeader = request.headers.get("X-Device-ID")?.trim();
     if (!session) {
       return NextResponse.json({ success: false, message: "未授權" }, { status: 401 });
+    }
+
+    if (!deviceIdHeader || deviceIdHeader !== session.deviceId) {
+      return NextResponse.json({ success: false, message: "裝置識別碼不匹配" }, { status: 403 });
     }
 
     const { new_super_admin_id } = await request.json();

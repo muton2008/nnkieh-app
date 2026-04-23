@@ -14,6 +14,7 @@ function getJwtSecret() {
 export async function POST(request: Request) {
   try {
     const authHeader = request.headers.get("Authorization");
+    const deviceIdHeader = request.headers.get("X-Device-ID")?.trim();
     const token = authHeader?.split(" ")[1];
     if (!token) {
       console.warn("[Auth] 未提供 JWT");
@@ -36,6 +37,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "JWT 格式錯誤" }, { status: 401 });
     }
 
+    if (!deviceIdHeader || deviceIdHeader !== adminDeviceId) {
+      console.warn("[Auth] 裝置識別碼不匹配");
+      return NextResponse.json({ success: false, message: "裝置識別碼不匹配" }, { status: 403 });
+    }
+
     // 審核模式：review JWT 不執行刪除，直接回傳假成功
     if (payload.review === true) {
       return NextResponse.json({ success: true, message: "刪除成功" });
@@ -53,6 +59,16 @@ export async function POST(request: Request) {
     }
 
     const supabase = await createClient();
+
+    const { data: operator } = await supabase
+      .from("admin_users")
+      .select("role")
+      .eq("device_id", adminDeviceId)
+      .single();
+
+    if (!operator || !["editor", "admin", "super_admin"].includes(operator.role)) {
+      return NextResponse.json({ success: false, message: "權限不足或已被撤權" }, { status: 403 });
+    }
 
     // 軟刪除
     const { error } = await supabase

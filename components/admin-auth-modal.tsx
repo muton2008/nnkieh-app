@@ -12,7 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useAdmin } from "@/components/admin-context";
-import { createPeerAuth, checkAuthStatus, ApiError } from "@/lib/api-client";
+import {
+  createPeerAuth,
+  checkAuthStatus,
+  getWebAuthnRequestOptions,
+  ApiError,
+} from "@/lib/api-client";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 // --- Types ---
 
@@ -31,6 +37,7 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
   const [step, setStep] = useState<AuthStep>("requesting");
   const [challengeCode, setChallengeCode] = useState<number | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [pollToken, setPollToken] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef(false);
@@ -51,22 +58,52 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
     setStep("requesting");
     setChallengeCode(null);
     setRequestId(null);
+    setPollToken(null);
     setErrorMsg("");
 
     const initAuth = async () => {
       try {
-        const data = await createPeerAuth(deviceId);
+        let assertion: Awaited<ReturnType<typeof startAuthentication>> | undefined;
+        try {
+          const optionsRes = await getWebAuthnRequestOptions(deviceId);
+          if (!optionsRes.success || !optionsRes.options) {
+            throw new Error(optionsRes.message || "無法取得發起授權的驗證挑戰");
+          }
+
+          assertion = await startAuthentication({
+            optionsJSON: optionsRes.options,
+          });
+        } catch (error) {
+          // 裝置尚未綁定時，允許先走雙人授權登入以完成首次綁定
+          if (!(error instanceof ApiError && error.status === 400)) {
+            throw error;
+          }
+        }
+
+        const data = await createPeerAuth(deviceId, assertion);
 
         if (abortRef.current) return;
 
         setChallengeCode(data.challengeCode);
         setRequestId(data.requestId);
+        setPollToken(data.pollToken);
         setStep("waiting");
       } catch (err) {
         if (abortRef.current) return;
+
+        const isUserCancelled =
+          err instanceof Error &&
+          (err.name === "NotAllowedError" || err.name === "AbortError");
+
         setStep("error");
         setErrorMsg(
-          err instanceof ApiError ? err.message : "網路錯誤，請稍後再試"
+          isUserCancelled
+            ? "已取消裝置驗證，未發起授權請求"
+            : err instanceof ApiError
+              ? err.message
+              : err instanceof Error && err.message
+                ? err.message
+                : "網路錯誤，請稍後再試"
         );
       }
     };
@@ -81,11 +118,11 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
   // 輪詢授權狀態
   useEffect(() => {
-    if (step !== "waiting" || !requestId) return;
+    if (step !== "waiting" || !requestId || !pollToken) return;
 
     const poll = async () => {
       try {
-        const data = await checkAuthStatus(requestId!);
+        const data = await checkAuthStatus(requestId, deviceId, pollToken);
 
         if (abortRef.current) return;
 
@@ -112,7 +149,7 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
     poll(); // 立即先查一次
 
     return () => stopPolling();
-  }, [step, requestId, stopPolling, enableAdminMode, onOpenChange]);
+  }, [step, requestId, deviceId, pollToken, stopPolling, enableAdminMode, onOpenChange]);
 
   const handleClose = () => {
     stopPolling();

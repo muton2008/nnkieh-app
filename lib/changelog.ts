@@ -21,6 +21,16 @@ export const CHANGELOG: ChangelogEntry[] = [
       "新增隱私權政策與開源授權頁面",
     ],
   },
+  {
+    version: "0.2.0-beta",
+    date: "2026-04-13",
+    changes: [
+      "更新行事曆登入系統",
+      "提升主頁面課表與行事曆載入速度",
+      "晚上6點後顯示隔日課表",
+      "順便寫了2題雙曲線"
+    ]
+  },
 ];
 
 const SEEN_VERSION_KEY = "app_seen_version";

@@ -63,6 +63,9 @@ function parsePayloadFromLink(rawLink: unknown): NotificationPayload {
     return {
       type: url.searchParams.get("type") ?? undefined,
       auth_request_id: url.searchParams.get("auth_request_id") ?? undefined,
+      request_id: url.searchParams.get("request_id") ?? undefined,
+      requestId: url.searchParams.get("requestId") ?? undefined,
+      authRequestId: url.searchParams.get("authRequestId") ?? undefined,
       announcement_id: url.searchParams.get("announcement_id") ?? url.searchParams.get("post_id") ?? undefined,
       calendar_date: url.searchParams.get("calendar_date") ?? url.searchParams.get("target_date") ?? url.searchParams.get("date") ?? undefined,
       tab: url.searchParams.get("tab") ?? tabFromPath ?? tabFromHash,
@@ -86,6 +89,9 @@ function clearNotificationQueryParams() {
   const paramsToRemove = [
     "type",
     "auth_request_id",
+    "request_id",
+    "requestId",
+    "authRequestId",
     "announcement_id",
     "post_id",
     "calendar_date",
@@ -108,7 +114,7 @@ function parseTabId(raw: unknown): TabId | null {
 function pickFirstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) {
-      return value;
+      return value.trim();
     }
   }
   return null;
@@ -167,7 +173,20 @@ export default function Page() {
     const explicitType = parseNotificationType(
       pickFirstString(payload.type, fromUrl.type, fromLink.type)
     );
-    const authReqId = pickFirstString(payload.auth_request_id, fromUrl.auth_request_id, fromLink.auth_request_id);
+    const authReqId = pickFirstString(
+      payload.auth_request_id,
+      payload.request_id,
+      payload.requestId,
+      payload.authRequestId,
+      fromUrl.auth_request_id,
+      fromUrl.request_id,
+      fromUrl.requestId,
+      fromUrl.authRequestId,
+      fromLink.auth_request_id,
+      fromLink.request_id,
+      fromLink.requestId,
+      fromLink.authRequestId
+    );
     const announcementId = pickAnnouncementId(
       payload.announcement_id,
       payload.post_id,
@@ -273,6 +292,9 @@ export default function Page() {
     handleNotificationNavigation({
       type: params.get("type") ?? undefined,
       auth_request_id: params.get("auth_request_id") ?? undefined,
+      request_id: params.get("request_id") ?? undefined,
+      requestId: params.get("requestId") ?? undefined,
+      authRequestId: params.get("authRequestId") ?? undefined,
       announcement_id: params.get("announcement_id") ?? params.get("post_id") ?? undefined,
       calendar_date: params.get("calendar_date") ?? params.get("target_date") ?? params.get("date") ?? undefined,
       tab: params.get("tab") ?? undefined,
@@ -355,6 +377,9 @@ export default function Page() {
     // 清除 URL 參數
     const url = new URL(window.location.href);
     url.searchParams.delete("auth_request_id");
+    url.searchParams.delete("request_id");
+    url.searchParams.delete("requestId");
+    url.searchParams.delete("authRequestId");
     window.history.replaceState({}, "", url.toString());
   }, []);
 

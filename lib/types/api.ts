@@ -1,5 +1,11 @@
 import { WeekSchedule } from './timetable';
 import { TrainInfo, BusInfo, STSPBusInfo, YouBikeStation } from './transport';
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/server';
 import { 
   SchoolCalendarEvent, 
   PrivateCalendarEvent,
@@ -132,18 +138,22 @@ export interface DeleteSchoolCalendarRequest {
 /** 建立雙人授權請求 */
 export interface CreateAuthRequest {
   device_id: string;
+  webauthn_assertion?: AuthenticationResponseJSON;
 }
 
 export interface CreateAuthResponse {
   success: boolean;
   requestId: string;
   challengeCode: number;
+  pollToken: string;
   message?: string;
 }
 
 /** 檢查授權請求狀態 */
 export interface CheckAuthStatusRequest {
   request_id: string;
+  device_id: string;
+  poll_token: string;
 }
 
 export interface CheckAuthStatusResponse {
@@ -158,6 +168,7 @@ export interface ApproveAuthRequest {
   requestId: string;
   inputCode: string;
   admin_device_id: string;
+  webauthn_assertion?: AuthenticationResponseJSON;
 }
 
 export interface ApproveAuthResponse {
@@ -176,6 +187,58 @@ export interface PendingRequestItem {
 export interface FetchPendingRequestsResponse {
   success: boolean;
   requests: PendingRequestItem[];
+  message?: string;
+}
+
+export interface FetchPendingRequestsRequest {
+  admin_device_id: string;
+  webauthn_assertion: AuthenticationResponseJSON;
+}
+
+/** WebAuthn 註冊／驗證 */
+export interface WebAuthnRegistrationOptionsResponse {
+  success: boolean;
+  message?: string;
+  options?: PublicKeyCredentialCreationOptionsJSON;
+  alreadyBound?: boolean;
+}
+
+export interface WebAuthnRegistrationVerifyRequest {
+  admin_device_id: string;
+  registration_response: RegistrationResponseJSON;
+}
+
+export interface WebAuthnRegistrationVerifyResponse {
+  success: boolean;
+  message?: string;
+  credentialId?: string;
+}
+
+/** WebAuthn 核准前驗證挑戰 */
+export interface WebAuthnAuthOptionsResponse {
+  success: boolean;
+  message?: string;
+  options?: PublicKeyCredentialRequestOptionsJSON;
+  requestId?: string;
+}
+
+export interface WebAuthnPendingOptionsResponse {
+  success: boolean;
+  message?: string;
+  options?: PublicKeyCredentialRequestOptionsJSON;
+}
+
+export interface WebAuthnRequestOptionsResponse {
+  success: boolean;
+  message?: string;
+  options?: PublicKeyCredentialRequestOptionsJSON;
+}
+
+export interface WebAuthnRegistrationStatusResponse {
+  success: boolean;
+  message?: string;
+  bound: boolean;
+  credentialCount: number;
 }
 
 /** 管理員白名單操作 (Super Admin 專用) */
