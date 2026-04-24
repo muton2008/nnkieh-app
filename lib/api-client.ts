@@ -336,11 +336,11 @@ export function getAdminSession(): AdminSession | null {
 /** 發起雙人授權請求 */
 export async function createPeerAuth(
   deviceId: string,
-  webauthnAssertion?: AuthenticationResponseJSON
+  webauthnAssertion: AuthenticationResponseJSON
 ): Promise<CreateAuthResponse> {
   const req: CreateAuthRequest = {
     device_id: deviceId,
-    ...(webauthnAssertion ? { webauthn_assertion: webauthnAssertion } : {}),
+    webauthn_assertion: webauthnAssertion,
   };
 
   return request<CreateAuthResponse>("/api/auth/request", {
@@ -392,12 +392,10 @@ export async function approvePeerAuth(
 
 /** 取得待核准的授權請求列表 */
 export async function fetchPendingRequests(
-  adminDeviceId: string,
-  webauthnAssertion: AuthenticationResponseJSON
+  adminDeviceId: string
 ): Promise<FetchPendingRequestsResponse> {
   const payload: FetchPendingRequestsRequest = {
     admin_device_id: adminDeviceId,
-    webauthn_assertion: webauthnAssertion,
   };
 
   return request<FetchPendingRequestsResponse>("/api/auth/pending", {
@@ -408,12 +406,16 @@ export async function fetchPendingRequests(
 
 /** 取得 WebAuthn 註冊 options */
 export async function getWebAuthnRegistrationOptions(
-  adminDeviceId: string
+  adminDeviceId: string,
+  bootstrapToken?: string
 ): Promise<WebAuthnRegistrationOptionsResponse> {
   return request<WebAuthnRegistrationOptionsResponse>("/api/auth/webauthn/register/options", {
     method: "POST",
     headers: getOptionalAdminHeaders(adminDeviceId),
-    body: JSON.stringify({ admin_device_id: adminDeviceId }),
+    body: JSON.stringify({
+      admin_device_id: adminDeviceId,
+      ...(bootstrapToken ? { bootstrap_token: bootstrapToken } : {}),
+    }),
   });
 }
 
@@ -555,6 +557,27 @@ export async function getWebAuthnRegistrationStatus(
   adminDeviceId: string
 ): Promise<WebAuthnRegistrationStatusResponse> {
   return request<WebAuthnRegistrationStatusResponse>(
-    `/api/auth/webauthn/register/status?admin_device_id=${encodeURIComponent(adminDeviceId)}`
+    `/api/auth/webauthn/register/status?admin_device_id=${encodeURIComponent(adminDeviceId)}`,
+    {
+      headers: getOptionalAdminHeaders(adminDeviceId),
+    }
   );
+}
+
+/** 由會長發放一次性首綁票證 */
+export async function issueWebAuthnBindTicket(
+  session: AdminSession,
+  targetDeviceId: string
+): Promise<ManageAdminWhitelistResponse> {
+  return request<ManageAdminWhitelistResponse>("/api/admin/whitelist", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "X-Device-ID": session.deviceId,
+    },
+    body: JSON.stringify({
+      action: "issue_bind_ticket",
+      target_device_id: targetDeviceId,
+    } as ManageAdminWhitelistRequest),
+  });
 }

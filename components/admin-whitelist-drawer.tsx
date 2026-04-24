@@ -24,6 +24,7 @@ import {
   fetchAdminWhitelist,
   manageAdminWhitelist,
   handoverSuperAdmin,
+  issueWebAuthnBindTicket,
 } from "@/lib/api-client";
 import type { AdminUser, AdminRole } from "@/lib/types/calendar";
 import {
@@ -36,6 +37,7 @@ import {
   Loader2,
   AlertTriangle,
   Copy,
+  KeyRound,
   Check,
   X,
 } from "lucide-react";
@@ -69,6 +71,14 @@ export function AdminWhitelistDrawer({ open, onOpenChange }: AdminWhitelistDrawe
   const [formName, setFormName] = useState("");
   const [formRole, setFormRole] = useState<AdminRole>("editor");
   const [saving, setSaving] = useState(false);
+  const [issuingTicketFor, setIssuingTicketFor] = useState<string | null>(null);
+  const [ticketDialog, setTicketDialog] = useState<{
+    targetName: string;
+    targetDeviceId: string;
+    ticket: string;
+    expiresIn: number;
+  } | null>(null);
+  const [ticketCopied, setTicketCopied] = useState(false);
 
   // 移交確認
   const [handoverTarget, setHandoverTarget] = useState<AdminUser | null>(null);
@@ -115,6 +125,14 @@ export function AdminWhitelistDrawer({ open, onOpenChange }: AdminWhitelistDrawe
         target_role: formRole,
       });
       if (res.success) {
+        if (res.bootstrap_ticket) {
+          setTicketDialog({
+            targetName: formName.trim(),
+            targetDeviceId: formDeviceId.trim(),
+            ticket: res.bootstrap_ticket,
+            expiresIn: res.bootstrap_ticket_expires_in || 1800,
+          });
+        }
         setShowAddForm(false);
         setFormDeviceId("");
         setFormName("");
@@ -127,6 +145,39 @@ export function AdminWhitelistDrawer({ open, onOpenChange }: AdminWhitelistDrawe
       setError(e.message || "新增失敗");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleIssueTicket = async (admin: AdminUser) => {
+    if (!session) return;
+    setIssuingTicketFor(admin.device_id);
+    try {
+      const res = await issueWebAuthnBindTicket(session, admin.device_id);
+      if (!res.success || !res.bootstrap_ticket) {
+        setError(res.message || "票證發放失敗");
+        return;
+      }
+      setTicketDialog({
+        targetName: admin.name,
+        targetDeviceId: admin.device_id,
+        ticket: res.bootstrap_ticket,
+        expiresIn: res.bootstrap_ticket_expires_in || 1800,
+      });
+    } catch (e: any) {
+      setError(e.message || "票證發放失敗");
+    } finally {
+      setIssuingTicketFor(null);
+    }
+  };
+
+  const copyTicket = async () => {
+    if (!ticketDialog) return;
+    try {
+      await navigator.clipboard.writeText(ticketDialog.ticket);
+      setTicketCopied(true);
+      setTimeout(() => setTicketCopied(false), 1800);
+    } catch {
+      setError("複製票證失敗");
     }
   };
 
@@ -236,6 +287,19 @@ export function AdminWhitelistDrawer({ open, onOpenChange }: AdminWhitelistDrawe
                   {/* 操作按鈕：僅 super_admin 可操作非自己的成員 */}
                   {isSuperAdmin && !isMe && (
                     <div className="flex items-center gap-1">
+                      {/* 發放首綁票證 */}
+                      <button
+                        onClick={() => handleIssueTicket(admin)}
+                        className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-colors"
+                        title="發放一次性首綁票證"
+                        disabled={issuingTicketFor === admin.device_id}
+                      >
+                        {issuingTicketFor === admin.device_id ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <KeyRound size={14} />
+                        )}
+                      </button>
                       {/* 移交按鈕 */}
                       <button
                         onClick={() => {
@@ -485,6 +549,38 @@ export function AdminWhitelistDrawer({ open, onOpenChange }: AdminWhitelistDrawe
       </Dialog>
       {deleteConfirmDialog}
       {handoverDialog}
+      <Dialog open={!!ticketDialog} onOpenChange={(o) => { if (!o) setTicketDialog(null); }}>
+        <DialogContent className="max-w-[380px] rounded-xl p-6">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-base flex items-center gap-2">
+              <KeyRound size={18} className="text-emerald-600" />
+              一次性首綁票證
+            </DialogTitle>
+            <DialogDescription className="text-xs font-light">
+              提供給 <strong>{ticketDialog?.targetName}</strong>（{ticketDialog?.targetDeviceId?.slice(0, 8)}...）
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-emerald-50 border border-emerald-200/70 rounded-lg p-3 mt-2">
+            <p className="text-[11px] text-emerald-800 leading-relaxed">
+              票證有效 {Math.floor((ticketDialog?.expiresIn || 1800) / 60)} 分鐘，成功綁定後即失效。
+            </p>
+          </div>
+          <textarea
+            readOnly
+            value={ticketDialog?.ticket || ""}
+            className="w-full mt-3 h-28 rounded-lg border border-border bg-background p-3 text-[11px] font-mono leading-relaxed"
+          />
+          <DialogFooter className="flex gap-3 mt-2">
+            <Button variant="outline" className="flex-1 rounded-xl h-11" onClick={() => setTicketDialog(null)}>
+              關閉
+            </Button>
+            <Button className="flex-1 rounded-xl h-11" onClick={copyTicket}>
+              {ticketCopied ? <Check size={14} className="mr-1.5" /> : <Copy size={14} className="mr-1.5" />}
+              {ticketCopied ? "已複製" : "複製票證"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

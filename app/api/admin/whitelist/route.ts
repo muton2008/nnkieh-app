@@ -3,16 +3,66 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import jwt from "jsonwebtoken";
+import { randomUUID } from "node:crypto";
 import type { AdminRole } from "@/lib/types/calendar";
+
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) throw new Error("JWT_SECRET 未設定或為空");
+  return secret;
+}
+
+async function issueBootstrapBindTicket(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  targetDeviceId: string,
+  issuedBy: string
+) {
+  const now = Date.now();
+  const expiresInSeconds = 3 * 60;
+  const expiresAt = new Date(now + expiresInSeconds * 1000).toISOString();
+  const jti = randomUUID();
+
+  await supabase
+    .from("webauthn_challenges")
+    .update({ used: true })
+    .eq("admin_device_id", targetDeviceId)
+    .eq("type", "bootstrap_bind")
+    .eq("used", false);
+
+  const { error: ticketSaveError } = await supabase
+    .from("webauthn_challenges")
+    .insert({
+      admin_device_id: targetDeviceId,
+      request_id: issuedBy,
+      challenge: jti,
+      type: "bootstrap_bind",
+      expires_at: expiresAt,
+      used: false,
+    });
+
+  if (ticketSaveError) throw ticketSaveError;
+
+  const token = jwt.sign(
+    {
+      type: "webauthn_bootstrap_bind",
+      deviceId: targetDeviceId,
+      issuedBy,
+      jti,
+    },
+    getJwtSecret(),
+    { algorithm: "HS256", expiresIn: `${expiresInSeconds}s` }
+  );
+
+  return { token, expiresInSeconds };
+}
 
 // --- 驗證 JWT 並取得角色 ---
 function verifySession(authHeader: string | null): { deviceId: string; role: AdminRole } | null {
-  const secret = process.env.JWT_SECRET?.trim();
-  if (!secret || !authHeader) return null;
+  if (!authHeader) return null;
 
   const token = authHeader.replace("Bearer ", "");
   try {
-    const payload = jwt.verify(token, secret, { algorithms: ["HS256"] }) as {
+    const payload = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] }) as {
       deviceId: string;
       role: AdminRole;
     };
@@ -136,7 +186,54 @@ export async function POST(request: Request) {
 
       if (error) throw error;
 
-      return NextResponse.json({ success: true, message: `已新增 ${target_name}` });
+      const ticket = await issueBootstrapBindTicket(
+        supabase,
+        target_device_id,
+        session.deviceId
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `已新增 ${target_name}`,
+        bootstrap_ticket: ticket.token,
+        bootstrap_ticket_expires_in: ticket.expiresInSeconds,
+      });
+    }
+
+    // --- 發放一次性首綁票證 ---
+    if (action === "issue_bind_ticket") {
+      if (!target_device_id) {
+        return NextResponse.json(
+          { success: false, message: "缺少目標 ID" },
+          { status: 400 }
+        );
+      }
+
+      const { data: target } = await supabase
+        .from("admin_users")
+        .select("device_id")
+        .eq("device_id", target_device_id)
+        .single();
+
+      if (!target) {
+        return NextResponse.json(
+          { success: false, message: "目標不在白名單中" },
+          { status: 404 }
+        );
+      }
+
+      const ticket = await issueBootstrapBindTicket(
+        supabase,
+        target_device_id,
+        session.deviceId
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: "已發放一次性首綁票證",
+        bootstrap_ticket: ticket.token,
+        bootstrap_ticket_expires_in: ticket.expiresInSeconds,
+      });
     }
 
     // --- 移除（即時撤銷機制）---

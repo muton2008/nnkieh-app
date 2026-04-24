@@ -20,6 +20,27 @@ function getJwtSecret() {
   return secret;
 }
 
+function decodeBase64UrlToUtf8(input: string): string {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padLength = (4 - (normalized.length % 4)) % 4;
+  const padded = normalized + "=".repeat(padLength);
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function extractChallengeFromAssertion(assertion: unknown): string | null {
+  const clientDataJSON = (assertion as { response?: { clientDataJSON?: unknown } })?.response
+    ?.clientDataJSON;
+  if (typeof clientDataJSON !== "string" || !clientDataJSON.trim()) return null;
+
+  try {
+    const clientDataRaw = decodeBase64UrlToUtf8(clientDataJSON);
+    const parsed = JSON.parse(clientDataRaw) as { challenge?: unknown };
+    return typeof parsed.challenge === "string" ? parsed.challenge : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
@@ -36,7 +57,7 @@ export async function POST(request: Request) {
     };
     const requesterId = typeof device_id === "string" ? device_id.trim() : "";
 
-    if (!requesterId) {
+    if (!requesterId || !webauthn_assertion) {
       return NextResponse.json(
         { success: false, message: "缺少必要欄位" },
         { status: 400 }
@@ -76,113 +97,117 @@ export async function POST(request: Request) {
 
     const hasBoundCredential = (credentialCount || 0) > 0;
 
-    if (hasBoundCredential) {
-      if (!webauthn_assertion) {
-        return NextResponse.json(
-          { success: false, message: "此裝置已綁定 WebAuthn，請先完成裝置驗證" },
-          { status: 401 }
-        );
-      }
+    if (!hasBoundCredential) {
+      return NextResponse.json(
+        { success: false, message: "此裝置尚未綁定 WebAuthn，請先完成綁定" },
+        { status: 403 }
+      );
+    }
 
-      const { data: challengeRows, error: challengeError } = await supabase
-        .from("webauthn_challenges")
-        .select("id, challenge, expires_at")
-        .eq("admin_device_id", requesterId)
-        .eq("type", "request_create")
-        .eq("used", false)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const expectedChallenge = extractChallengeFromAssertion(webauthn_assertion);
+    if (!expectedChallenge) {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 挑戰資料不完整" },
+        { status: 400 }
+      );
+    }
 
-      if (challengeError || !challengeRows || challengeRows.length === 0) {
-        return NextResponse.json(
-          { success: false, message: "WebAuthn 挑戰不存在或已失效，請重新驗證" },
-          { status: 401 }
-        );
-      }
+    const { data: challengeRow, error: challengeError } = await supabase
+      .from("webauthn_challenges")
+      .select("id, challenge, expires_at")
+      .eq("admin_device_id", requesterId)
+      .eq("type", "request_create")
+      .eq("challenge", expectedChallenge)
+      .eq("used", false)
+      .single();
 
-      const challengeRow = challengeRows[0];
+    if (challengeError || !challengeRow) {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 挑戰不存在或已失效，請重新驗證" },
+        { status: 401 }
+      );
+    }
 
-      if (new Date(challengeRow.expires_at).getTime() < Date.now()) {
-        await supabase
-          .from("webauthn_challenges")
-          .update({ used: true })
-          .eq("id", challengeRow.id);
-
-        return NextResponse.json(
-          { success: false, message: "WebAuthn 挑戰已過期，請重新驗證" },
-          { status: 410 }
-        );
-      }
-
-      const credentialId =
-        typeof (webauthn_assertion as { id?: unknown })?.id === "string"
-          ? (webauthn_assertion as { id: string }).id
-          : "";
-
-      if (!credentialId) {
-        return NextResponse.json(
-          { success: false, message: "WebAuthn 憑證資訊不完整" },
-          { status: 400 }
-        );
-      }
-
-      const { data: storedCredential } = await supabase
-        .from("admin_webauthn_credentials")
-        .select("credential_id, public_key, counter, transports")
-        .eq("admin_device_id", requesterId)
-        .eq("credential_id", credentialId)
-        .is("revoked_at", null)
-        .single();
-
-      if (!storedCredential) {
-        return NextResponse.json(
-          { success: false, message: "此裝置尚未綁定可用的 WebAuthn 憑證" },
-          { status: 403 }
-        );
-      }
-
-      let verification;
-      try {
-        verification = await verifyAuthenticationResponse({
-          response: webauthn_assertion as AuthenticationResponseJSON,
-          expectedChallenge: challengeRow.challenge,
-          expectedOrigin: getWebAuthnOrigin(),
-          expectedRPID: getWebAuthnRpID(),
-          credential: {
-            id: storedCredential.credential_id,
-            publicKey: fromBase64URL(storedCredential.public_key),
-            counter: Number(storedCredential.counter || 0),
-            transports: normalizeTransports(storedCredential.transports),
-          },
-          requireUserVerification: true,
-        });
-      } catch {
-        return NextResponse.json(
-          { success: false, message: "WebAuthn 驗證失敗" },
-          { status: 401 }
-        );
-      }
-
-      if (!verification.verified) {
-        return NextResponse.json(
-          { success: false, message: "WebAuthn 驗證失敗" },
-          { status: 401 }
-        );
-      }
-
+    if (new Date(challengeRow.expires_at).getTime() < Date.now()) {
       await supabase
         .from("webauthn_challenges")
         .update({ used: true })
         .eq("id", challengeRow.id);
 
-      await supabase
-        .from("admin_webauthn_credentials")
-        .update({
-          counter: verification.authenticationInfo.newCounter,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("credential_id", storedCredential.credential_id);
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 挑戰已過期，請重新驗證" },
+        { status: 410 }
+      );
     }
+
+    const credentialId =
+      typeof (webauthn_assertion as { id?: unknown })?.id === "string"
+        ? (webauthn_assertion as { id: string }).id
+        : "";
+
+    if (!credentialId) {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 憑證資訊不完整" },
+        { status: 400 }
+      );
+    }
+
+    const { data: storedCredential } = await supabase
+      .from("admin_webauthn_credentials")
+      .select("credential_id, public_key, counter, transports")
+      .eq("admin_device_id", requesterId)
+      .eq("credential_id", credentialId)
+      .is("revoked_at", null)
+      .single();
+
+    if (!storedCredential) {
+      return NextResponse.json(
+        { success: false, message: "此裝置尚未綁定可用的 WebAuthn 憑證" },
+        { status: 403 }
+      );
+    }
+
+    let verification;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: webauthn_assertion as AuthenticationResponseJSON,
+        expectedChallenge: challengeRow.challenge,
+        expectedOrigin: getWebAuthnOrigin(),
+        expectedRPID: getWebAuthnRpID(),
+        credential: {
+          id: storedCredential.credential_id,
+          publicKey: fromBase64URL(storedCredential.public_key),
+          counter: Number(storedCredential.counter || 0),
+          transports: normalizeTransports(storedCredential.transports),
+        },
+        requireUserVerification: true,
+      });
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 驗證失敗" },
+        { status: 401 }
+      );
+    }
+
+    if (!verification.verified) {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 驗證失敗" },
+        { status: 401 }
+      );
+    }
+
+    await supabase
+      .from("webauthn_challenges")
+      .update({ used: true })
+      .eq("id", challengeRow.id);
+
+    await supabase
+      .from("admin_webauthn_credentials")
+      .update({
+        counter: verification.authenticationInfo.newCounter,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("credential_id", storedCredential.credential_id);
 
     // 生成 6 位數挑戰碼與寫入資料庫（使用加密安全隨機數）
     const challengeCode = randomInt(100000, 1000000);

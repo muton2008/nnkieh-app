@@ -138,7 +138,7 @@ export interface DeleteSchoolCalendarRequest {
 /** 建立雙人授權請求 */
 export interface CreateAuthRequest {
   device_id: string;
-  webauthn_assertion?: AuthenticationResponseJSON;
+  webauthn_assertion: AuthenticationResponseJSON;
 }
 
 export interface CreateAuthResponse {
@@ -192,7 +192,6 @@ export interface FetchPendingRequestsResponse {
 
 export interface FetchPendingRequestsRequest {
   admin_device_id: string;
-  webauthn_assertion: AuthenticationResponseJSON;
 }
 
 /** WebAuthn 註冊／驗證 */
@@ -206,6 +205,7 @@ export interface WebAuthnRegistrationOptionsResponse {
 export interface WebAuthnRegistrationVerifyRequest {
   admin_device_id: string;
   registration_response: RegistrationResponseJSON;
+  bootstrap_token?: string;
 }
 
 export interface WebAuthnRegistrationVerifyResponse {
@@ -238,12 +238,12 @@ export interface WebAuthnRegistrationStatusResponse {
   success: boolean;
   message?: string;
   bound: boolean;
-  credentialCount: number;
+  credentialCount?: number;
 }
 
 /** 管理員白名單操作 (Super Admin 專用) */
 export interface ManageAdminWhitelistRequest {
-  action: 'add' | 'remove' | 'update';
+  action: 'add' | 'remove' | 'update' | 'issue_bind_ticket';
   target_device_id: string;
   target_name?: string;
   target_role?: AdminRole;
@@ -252,6 +252,8 @@ export interface ManageAdminWhitelistRequest {
 export interface ManageAdminWhitelistResponse {
   success: boolean;
   message?: string;
+  bootstrap_ticket?: string;
+  bootstrap_ticket_expires_in?: number;
 }
 
 /** 取得管理員白名單 */

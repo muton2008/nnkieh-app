@@ -126,6 +126,7 @@ interface TimetablePageProps {
 
 export function TimetablePage({ deviceId }: TimetablePageProps) {
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [schedule, setSchedule] = useState<WeekSchedule>({});
   const [className, setClassName] = useState("載入中...");
   const [defaultRoom, setDefaultRoom] = useState("");
@@ -161,6 +162,55 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   // Auto-save debounce ref
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshResumeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshInFlightRef = useRef(false);
+
+  const isRefreshPaused = isEditing || !!editCell || !!detailSheet;
+
+  const applyTimetableData = useCallback(
+    (data: FetchTimetableResponse, invite: string) => {
+      if (!data || !data.schedule) return;
+
+      setSchedule(data.schedule);
+      setClassName(data.class_name || "我的課表");
+      setDefaultRoom(data.default_room || "");
+
+      syncWidgetData(data.schedule, data.class_name || "我的課表");
+
+      const updatedCache = {
+        ...data,
+        invite_code: invite,
+        updated_at: new Date().toISOString(),
+      };
+      localStorage.setItem("cache_timetable", JSON.stringify(updatedCache));
+    },
+    []
+  );
+
+  const refreshTimetable = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const activeCode = inviteCode || localStorage.getItem("invite_code");
+      if (!activeCode || refreshInFlightRef.current) return;
+
+      refreshInFlightRef.current = true;
+      if (!options?.silent) setIsRefreshing(true);
+
+      try {
+        const res = await fetchTimetable({ invite_code: activeCode });
+        if (res && res.schedule) {
+          if (!inviteCode) setInviteCode(activeCode);
+          applyTimetableData(res, activeCode);
+        }
+      } catch (error) {
+        console.error("[TimetablePage] background refresh error:", error);
+      } finally {
+        refreshInFlightRef.current = false;
+        if (!options?.silent) setIsRefreshing(false);
+      }
+    },
+    [applyTimetableData, inviteCode]
+  );
 
   // --- Load data ---
   useEffect(() => {
@@ -188,26 +238,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
               // 設定目前的邀請碼狀態
               if (!inviteCode) setInviteCode(activeCode);
 
-              // 強制從 DB 抓取最新資料
-              const res = await fetchTimetable({ invite_code: activeCode });
-              
-              if (res && res.schedule) {
-                // 以雲端為準：覆蓋本地狀態 ---
-                setSchedule(res.schedule);
-                setClassName(res.class_name || "我的課表");
-                setDefaultRoom(res.default_room || "");
-
-                // 同步課表到桌面 Widget
-                syncWidgetData(res.schedule, res.class_name || "我的課表");
-                
-                // 更新本地快取，確保下次載入時快取就是這份新的
-                const updatedCache = {
-                  ...res,
-                  invite_code: activeCode,
-                  updated_at: new Date().toISOString(),
-                };
-                localStorage.setItem("cache_timetable", JSON.stringify(updatedCache));
-              }
+              await refreshTimetable({ silent: true });
             } catch (error) {
               console.error("同步雲端失敗:", error);
               setClassName((prev) => prev === "載入中..." ? "我的課表 (離線模式)" : prev);
@@ -231,6 +262,43 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
   // 這裡移除 [inviteCode] 依賴，改由手動觸發或保持空陣列，防止無限迴圈
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (refreshTimerRef.current) {
+      clearInterval(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
+    if (refreshResumeTimerRef.current) {
+      clearTimeout(refreshResumeTimerRef.current);
+      refreshResumeTimerRef.current = null;
+    }
+
+    if (isRefreshPaused) {
+      return;
+    }
+
+    refreshResumeTimerRef.current = setTimeout(() => {
+      void refreshTimetable({ silent: false });
+    }, 300);
+
+    refreshTimerRef.current = setInterval(() => {
+      void refreshTimetable({ silent: false });
+    }, 60_000);
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      if (refreshResumeTimerRef.current) {
+        clearTimeout(refreshResumeTimerRef.current);
+        refreshResumeTimerRef.current = null;
+      }
+    };
+  }, [loading, refreshTimetable, isRefreshPaused]);
 
   // --- 同步課表提醒 (schedule 或 privateNotes 變化時自動比對) ---
   useEffect(() => {
@@ -372,12 +440,29 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         });
 
         if (res.success) {
-          // 重新抓取課表以更新 UI
-          const data = await fetchTimetable({ invite_code: inviteCode });
-          setSchedule(data.schedule);
+          const nextSchedule = { ...schedule };
+          const dayArr = [...(nextSchedule[detailSheet.day] || [])];
+
+          while (dayArr.length <= detailSheet.periodIdx) {
+            dayArr.push({ subject: "", teacher: "", room: "", notes: [] });
+          }
+
+          if (!dayArr[detailSheet.periodIdx].notes) {
+            dayArr[detailSheet.periodIdx].notes = [];
+          }
+
+          dayArr[detailSheet.periodIdx].notes.push({
+            id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            text: newNoteText.trim(),
+            category: newNoteCategory,
+            source: "public",
+            date: targetDate,
+          });
+
+          nextSchedule[detailSheet.day] = dayArr;
+          setSchedule(nextSchedule);
           setNewNoteText("");
-          // 立即同步提醒（使用最新的 schedule）
-          syncTimetableReminders(data.schedule, privateNotes).catch(console.error);
+          syncTimetableReminders(nextSchedule, privateNotes).catch(console.error);
         }
         setIsSubmittingNote(false);
       } catch (error) {
@@ -415,7 +500,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
       // 立即同步提醒（使用新的 schedule）
       syncTimetableReminders(newSchedule, privateNotes).catch(console.error);
     }
-  }, [detailSheet, newNoteText, newNoteCategory, privateNotes, inviteCode, schedule, className, defaultRoom, triggerAutoSave]);
+  }, [detailSheet, newNoteText, newNoteCategory, privateNotes, inviteCode, schedule, className, defaultRoom, triggerAutoSave, applyTimetableData]);
 
   const removeNote = useCallback(
     async (noteId: string, source: "public" | "private") => {
@@ -454,7 +539,7 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         }
       }
     },
-    [detailSheet, privateNotes, schedule, inviteCode, className]
+    [detailSheet, privateNotes, schedule, inviteCode, className, refreshTimetable]
   );
 
   // --- Course editing ---
@@ -539,18 +624,16 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
         setClassName(res.class_name);
         // Refetch timetable after joining
         const data = await fetchTimetable({ invite_code: code });
-        setSchedule(data.schedule);
+        applyTimetableData(data, code);
         localStorage.setItem("invite_code", code);
         setInviteCode(code);
-        // 同步到桌面 Widget
-        syncWidgetData(data.schedule, res.class_name);
       }
     } finally {
       setJoining(false);
       setShowJoinDialog(false);
       setJoinCode("");
     }
-  }, [joinCode]);
+  }, [joinCode, applyTimetableData]);
 
   const handleLeaveClass = useCallback(async () => {
     // 通知後端刪除課表（僅建立者會成功刪除）
@@ -627,6 +710,11 @@ export function TimetablePage({ deviceId }: TimetablePageProps) {
             {saveStatus === "saved" && (
               <span className="text-[9px] text-emerald-600/60 font-light flex items-center gap-0.5">
                 <Check size={9} /> 已儲存
+              </span>
+            )}
+            {isRefreshing && (
+              <span className="text-[9px] text-muted-foreground/50 font-light flex items-center gap-0.5">
+                <RefreshCw size={9} className="animate-spin" /> 同步中
               </span>
             )}
           </div>

@@ -127,10 +127,9 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  return handleStatusCheck(
-    searchParams.get("request_id") ?? undefined,
-    searchParams.get("device_id") ?? undefined,
-    searchParams.get("poll_token") ?? undefined
+  void request;
+  return NextResponse.json(
+    { success: false, message: "請使用 POST 查詢授權狀態" },
+    { status: 405 }
   );
 }

@@ -63,22 +63,14 @@ export function AdminAuthModal({ open, onOpenChange, deviceId }: AdminAuthModalP
 
     const initAuth = async () => {
       try {
-        let assertion: Awaited<ReturnType<typeof startAuthentication>> | undefined;
-        try {
-          const optionsRes = await getWebAuthnRequestOptions(deviceId);
-          if (!optionsRes.success || !optionsRes.options) {
-            throw new Error(optionsRes.message || "無法取得發起授權的驗證挑戰");
-          }
-
-          assertion = await startAuthentication({
-            optionsJSON: optionsRes.options,
-          });
-        } catch (error) {
-          // 裝置尚未綁定時，允許先走雙人授權登入以完成首次綁定
-          if (!(error instanceof ApiError && error.status === 400)) {
-            throw error;
-          }
+        const optionsRes = await getWebAuthnRequestOptions(deviceId);
+        if (!optionsRes.success || !optionsRes.options) {
+          throw new Error(optionsRes.message || "無法取得發起授權的驗證挑戰");
         }
+
+        const assertion = await startAuthentication({
+          optionsJSON: optionsRes.options,
+        });
 
         const data = await createPeerAuth(deviceId, assertion);
 

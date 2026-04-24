@@ -80,13 +80,6 @@ export async function POST(request: Request) {
       })),
     });
 
-    await supabase
-      .from("webauthn_challenges")
-      .update({ used: true })
-      .eq("admin_device_id", adminDeviceId)
-      .eq("type", "request_create")
-      .eq("used", false);
-
     const { error: challengeError } = await supabase
       .from("webauthn_challenges")
       .insert({

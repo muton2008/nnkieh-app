@@ -14,6 +14,27 @@ import {
   normalizeTransports,
 } from "@/lib/webauthn";
 
+function decodeBase64UrlToUtf8(input: string): string {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padLength = (4 - (normalized.length % 4)) % 4;
+  const padded = normalized + "=".repeat(padLength);
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function extractChallengeFromAssertion(assertion: unknown): string | null {
+  const clientDataJSON = (assertion as { response?: { clientDataJSON?: unknown } })?.response
+    ?.clientDataJSON;
+  if (typeof clientDataJSON !== "string" || !clientDataJSON.trim()) return null;
+
+  try {
+    const clientDataRaw = decodeBase64UrlToUtf8(clientDataJSON);
+    const parsed = JSON.parse(clientDataRaw) as { challenge?: unknown };
+    return typeof parsed.challenge === "string" ? parsed.challenge : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const secret = process.env.JWT_SECRET?.trim();
@@ -59,7 +80,10 @@ export async function POST(request: Request) {
     }
 
     // ── Play Store 審核模式：輸入 000000 直接簽發體驗 JWT ──
-    const reviewModeEnabled = process.env.REVIEW_MODE === "true";
+    const allowReviewInProduction = process.env.REVIEW_MODE_ALLOW_PRODUCTION === "true";
+    const reviewModeEnabled =
+      process.env.REVIEW_MODE === "true" &&
+      (process.env.NODE_ENV !== "production" || allowReviewInProduction);
     const reviewSecret = process.env.REVIEW_MODE_SECRET?.trim();
     const reviewSecretValid =
       process.env.NODE_ENV !== "production" ||
@@ -150,24 +174,30 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: challengeRows, error: challengeError } = await supabase
+    const expectedChallenge = extractChallengeFromAssertion(webauthn_assertion);
+    if (!expectedChallenge) {
+      return NextResponse.json(
+        { success: false, message: "WebAuthn 挑戰資料不完整" },
+        { status: 400 }
+      );
+    }
+
+    const { data: challengeRow, error: challengeError } = await supabase
       .from("webauthn_challenges")
       .select("id, challenge, expires_at")
       .eq("admin_device_id", admin_device_id)
       .eq("type", "authentication")
       .eq("request_id", requestId)
+      .eq("challenge", expectedChallenge)
       .eq("used", false)
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .single();
 
-    if (challengeError || !challengeRows || challengeRows.length === 0) {
+    if (challengeError || !challengeRow) {
       return NextResponse.json(
         { success: false, message: "WebAuthn 挑戰不存在或已失效，請重新驗證" },
         { status: 401 }
       );
     }
-
-    const challengeRow = challengeRows[0];
 
     if (new Date(challengeRow.expires_at).getTime() < Date.now()) {
       await supabase

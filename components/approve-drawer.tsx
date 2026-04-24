@@ -30,7 +30,6 @@ import {
 	fetchPendingRequests,
 	approvePeerAuth,
 	getWebAuthnAuthOptions,
-	getWebAuthnPendingOptions,
 	getWebAuthnRegistrationStatus,
 	getWebAuthnRegistrationOptions,
 	verifyWebAuthnRegistration,
@@ -70,11 +69,12 @@ export function ApproveDrawer({
 	forceOpen = false,
 	onClose,
 }: ApproveDrawerProps) {
-	const { enableAdminMode, session } = useAdmin();
+	const { enableAdminMode } = useAdmin();
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<ApproveStep>("input");
 	const [otpValue, setOtpValue] = useState("");
 	const [message, setMessage] = useState("");
+	const [bootstrapToken, setBootstrapToken] = useState("");
 	const [isWebAuthnBound, setIsWebAuthnBound] = useState(false);
 	const [pendingRequests, setPendingRequests] = useState<PendingRequestItem[]>([]);
 	const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -124,16 +124,7 @@ export function ApproveDrawer({
 		fetchedRef.current = true;
 
 		try {
-			const pendingOptions = await getWebAuthnPendingOptions(deviceId);
-			if (!pendingOptions.success || !pendingOptions.options) {
-				throw new Error(pendingOptions.message || "無法取得待核准清單驗證挑戰");
-			}
-
-			const pendingAssertion = await startAuthentication({
-				optionsJSON: pendingOptions.options,
-			});
-
-			const data = await fetchPendingRequests(deviceId, pendingAssertion);
+			const data = await fetchPendingRequests(deviceId);
 
 			if (data.success && data.requests && data.requests.length > 0) {
 				setPendingRequests(data.requests);
@@ -148,17 +139,8 @@ export function ApproveDrawer({
 				setMessage(data.message || "目前沒有待核准請求");
 			}
 		} catch (error: unknown) {
-			const isUserCancelled =
-				error instanceof Error &&
-				((error as Error & { name?: string }).name === "NotAllowedError" ||
-					(error as Error & { name?: string }).name === "AbortError");
-
 			setStep("input");
-			setMessage(
-				isUserCancelled
-					? "已取消驗證，未載入待核准清單"
-					: getErrorMessage(error, "載入待核准清單失敗")
-			);
+			setMessage(getErrorMessage(error, "載入待核准清單失敗"));
 		}
 	};
 
@@ -175,6 +157,7 @@ export function ApproveDrawer({
 		setStep("input");
 		setMessage("");
 		setIsWebAuthnBound(false);
+		setBootstrapToken("");
 		setSelectedRequestId(null);
 		setPendingRequests([]);
 		fetchedRef.current = false;
@@ -187,17 +170,14 @@ export function ApproveDrawer({
 			return;
 		}
 
-		if (!session || session.deviceId !== deviceId) {
-			setStep("input");
-			setMessage("請先完成管理員授權登入，再進行首次 WebAuthn 綁定");
-			return;
-		}
-
 		setStep("registering");
 		setMessage("");
 
 		try {
-			const optionsRes = await getWebAuthnRegistrationOptions(deviceId);
+			const optionsRes = await getWebAuthnRegistrationOptions(
+				deviceId,
+				bootstrapToken.trim() || undefined
+			);
 			if (!optionsRes.success || !optionsRes.options) {
 				if (optionsRes.alreadyBound) {
 					setIsWebAuthnBound(true);
@@ -215,6 +195,7 @@ export function ApproveDrawer({
 			const verifyRes = await verifyWebAuthnRegistration({
 				admin_device_id: deviceId,
 				registration_response: registrationResponse,
+				...(bootstrapToken.trim() ? { bootstrap_token: bootstrapToken.trim() } : {}),
 			});
 
 			if (!verifyRes.success) {
@@ -240,7 +221,7 @@ export function ApproveDrawer({
 			setStep("error");
 			setMessage(getErrorMessage(error, "WebAuthn 綁定失敗，請稍後再試"));
 		}
-	}, [deviceId, isWebAuthnBound, session]);
+	}, [bootstrapToken, deviceId, isWebAuthnBound]);
 
 	const handleSubmit = useCallback(async () => {
 		if (otpValue.length !== 6) return;
@@ -435,6 +416,21 @@ export function ApproveDrawer({
 
 								{message && (
 									<p className="text-xs text-green-600 text-center whitespace-pre-line">{message}</p>
+								)}
+
+								{!isWebAuthnBound && (
+									<div className="w-full max-w-[320px] space-y-1">
+										<label className="text-[11px] text-muted-foreground/70 font-light block">
+											首次綁定票證（選填）
+										</label>
+										<input
+											type="text"
+											value={bootstrapToken}
+											onChange={(e) => setBootstrapToken(e.target.value)}
+											placeholder="由會長發放的一次性票證"
+											className="w-full rounded-sm border border-border bg-background px-3 py-2 text-xs font-mono"
+										/>
+									</div>
 								)}
 
 								<div className="w-full max-w-[320px] flex gap-2">
