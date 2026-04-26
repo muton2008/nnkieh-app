@@ -299,7 +299,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
             {getGreeting()}
           </h1>
           <p className="text-sm text-muted-foreground mt-1 font-light">
-            {getTodayString(targetDateInfo.date)} &middot; {message}
+            {getTodayString(new Date())} &middot; {message}
           </p>
         </div>
         <button onClick={() => onNavigate("settings")} className="p-2 text-muted-foreground/50 hover:text-foreground">
