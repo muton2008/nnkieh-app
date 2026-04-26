@@ -339,7 +339,7 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
         </div>
         {todaySchedule.length === 0 ? (
           <div className="bg-card border border-border rounded-sm px-4 py-6 text-center">
-            <p className="text-sm text-muted-foreground/50 font-light">今天沒有課程安排</p>
+            <p className="text-sm text-muted-foreground/50 font-light">{targetDateInfo.isTomorrow ? "明日沒有課程安排" : "今天沒有課程安排"}</p>
           </div>
         ) : (
           <div className="bg-card border border-border rounded-sm divide-y divide-border">

@@ -32,6 +32,15 @@ export const CHANGELOG: ChangelogEntry[] = [
       "順便寫了2題雙曲線"
     ]
   },
+  {
+    version: "0.3.0-beta",
+    date: "2026-04-26",
+    changes: [
+      "新增巡迴巴士資訊",
+      "修正主頁面課表顯示問題",
+      "順便準備明天的模擬面試",
+      ]
+  }
 ];
 
 const SEEN_VERSION_KEY = "app_seen_version";

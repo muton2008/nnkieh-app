@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import { TransportDataResponse } from "@/lib/types/api";
-import { fetchTransportData } from "@/lib/api-client";
+import { fetchTransportData, fetchTransportSTSPData } from "@/lib/api-client";
 
 const AUTO_REFRESH_INTERVAL = 60_000; // 60 秒自動刷新
 
@@ -66,10 +66,34 @@ function BikeBar({ available, total }: { available: number; total: number }) {
 export function TransportPage() {
   const [loading, setLoading] = useState(true);         // 首次載入（顯示骨架屏）
   const [refreshing, setRefreshing] = useState(false);   // 背景刷新中
+  const [stspLoading, setStspLoading] = useState(false);
+  const [stspRefreshing, setStspRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(0);
+  const [stspLastUpdate, setStspLastUpdate] = useState(0);
   const [transportData, setTransportData] = useState<TransportDataResponse | null>(null);
+  const [stspData, setStspData] = useState<TransportDataResponse["STSP_buses"]>({
+    "南科實中": [],
+    "民生水塔": [],
+    "台鐵南科站": []
+  });
   const [error, setError] = useState<string | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refreshSTSP = useCallback(async (isBackground: boolean) => {
+    if (isBackground) setStspRefreshing(true);
+    else setStspLoading(true);
+
+    try {
+      const data = await fetchTransportSTSPData(true);
+      setStspData(data.STSP_buses);
+      setStspLastUpdate(Date.now());
+    } catch (err) {
+      console.error("STSP資料載入失敗:", err);
+    } finally {
+      if (isBackground) setStspRefreshing(false);
+      else setStspLoading(false);
+    }
+  }, []);
 
   /** 取得資料（forceRefresh = true 跳過客戶端快取） */
   const doFetch = useCallback(async (isBackground: boolean) => {
@@ -97,18 +121,21 @@ export function TransportPage() {
   // 首次載入 + 自動刷新
   useEffect(() => {
     doFetch(false);
+    void refreshSTSP(false);
 
     autoRefreshRef.current = setInterval(() => {
       doFetch(true);
+      void refreshSTSP(true);
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
       if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
     };
-  }, [doFetch]);
+  }, [doFetch, refreshSTSP]);
 
   // 倒計時顯示
   const [secondsAgo, setSecondsAgo] = useState(0);
+  const [stspSecondsAgo, setStspSecondsAgo] = useState(0);
   useEffect(() => {
     if (!lastUpdate) return;
     const interval = setInterval(() => {
@@ -117,11 +144,20 @@ export function TransportPage() {
     return () => clearInterval(interval);
   }, [lastUpdate]);
 
+  useEffect(() => {
+    if (!stspLastUpdate) return;
+    const interval = setInterval(() => {
+      setStspSecondsAgo(Math.floor((Date.now() - stspLastUpdate) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [stspLastUpdate]);
+
   /** 手動刷新（背景模式，不擋畫面） */
   const handleRefresh = useCallback(async () => {
-    if (refreshing || loading) return;
+    if (refreshing || stspRefreshing || loading) return;
     doFetch(true);
-  }, [refreshing, loading, doFetch]);
+    void refreshSTSP(true);
+  }, [refreshing, stspRefreshing, loading, doFetch, refreshSTSP]);
 
   return (
     <div className="flex flex-col h-full relative">
@@ -154,24 +190,24 @@ export function TransportPage() {
         </div>
         <div className="flex items-center gap-2">
           {/* 更新狀態指示 */}
-          <div className="flex items-center gap-1.5">
-            {refreshing && (
-              <span className="text-[10px] text-foreground/50 font-light">更新中</span>
-            )}
-            <span className="text-[10px] text-muted-foreground/50 font-light tabular-nums">
-              {loading && !transportData ? "載入中" : `${secondsAgo} 秒前`}
+          <div className="flex flex-col items-end leading-tight">
+            <span className="text-[10px] text-muted-foreground/55 font-light tabular-nums">
+              主資料：{loading && !transportData ? "載入中" : refreshing ? "更新中" : `${secondsAgo} 秒前`}
+            </span>
+            <span className="text-[10px] text-muted-foreground/55 font-light tabular-nums">
+              巡迴巴士：{stspLoading ? "載入中" : stspRefreshing ? "更新中" : stspLastUpdate ? `${stspSecondsAgo} 秒前` : "尚未更新"}
             </span>
           </div>
           <button
             onClick={handleRefresh}
-            disabled={refreshing || (loading && !transportData)}
+            disabled={refreshing || stspRefreshing || (loading && !transportData)}
             className="p-2 -m-0.5 text-muted-foreground hover:text-foreground active:scale-90 transition-all disabled:opacity-30 rounded-full hover:bg-foreground/5"
             aria-label="重新整理"
           >
             <RefreshCw
               size={16}
               strokeWidth={1.5}
-              className={`transition-transform ${refreshing ? "animate-spin" : ""}`}
+              className={`transition-transform ${refreshing || stspRefreshing ? "animate-spin" : ""}`}
             />
           </button>
         </div>
@@ -286,74 +322,80 @@ export function TransportPage() {
               <div className="flex items-center gap-2 mb-2.5">
                 <Bus size={16} strokeWidth={1.5} className="text-foreground/60" />
                 <h2 className="text-sm font-medium text-foreground">
-                  南科巡迴巴士 &middot; 站點動態(暫不支援)
+                  南科巡迴巴士 &middot; 站點動態
                 </h2>
               </div>
 
-              {transportData?.STSP_buses && Object.entries(transportData.STSP_buses).map(([stopName, buses]) => (
-                <div key={stopName} className="mb-5 last:mb-0">
-                  {/* 站點名稱標籤 */}
-                  <div className="flex items-center gap-1.5 mb-2 px-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span className="text-[11px] text-foreground/60 font-bold uppercase tracking-wider">
-                      {stopName}
-                    </span>
-                  </div>
+              {Object.keys(stspData).length === 0 ? (
+                <div className="bg-macaron-green border border-border/50 rounded-md px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light">
+                  {stspLoading || stspRefreshing ? "STSP資料更新中...需等待較久" : "目前無可用站點資料"}
+                </div>
+              ) : (
+                Object.entries(stspData).map(([stopName, buses]) => (
+                  <div key={stopName} className="mb-5 last:mb-0">
+                    {/* 站點名稱標籤 */}
+                    <div className="flex items-center gap-1.5 mb-2 px-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span className="text-[11px] text-foreground/60 font-bold uppercase tracking-wider">
+                        {stopName}
+                      </span>
+                    </div>
 
-                  {/* 公車列表卡片 */}
-                  <div className="bg-macaron-green border border-border/50 rounded-md divide-y divide-border/50 overflow-hidden">
-                    {buses && buses.length > 0 ? (
-                      buses.map((bus, idx) => (
-                        <div 
-                          key={`${stopName}-${idx}`} 
-                          className="flex items-center justify-between px-4 py-3.5 gap-4"
-                        >
-                          {/* 左側資訊區：使用 flex-1 確保佔滿空間 */}
-                          <div className="flex items-start gap-3 min-w-0 flex-1">
-                            {/* 路線名稱 (如：紅線) */}
-                            <span className="text-sm font-black text-foreground shrink-0 mt-0.5">
-                              {bus.route.split(" ")[0]}
-                            </span>
-                            
-                            {/* 分隔線 */}
-                            <div className="w-px h-8 bg-border/50 shrink-0" />
-                            
-                            {/* 目的地與子路線 */}
-                            <div className="flex flex-col min-w-0 gap-1">
-                              {/* 目的地 */}
-                              <span className="text-sm text-foreground font-semibold leading-tight">
-                                {bus.destination}
+                    {/* 公車列表卡片 */}
+                    <div className="bg-macaron-green border border-border/50 rounded-md divide-y divide-border/50 overflow-hidden">
+                      {buses && buses.length > 0 ? (
+                        buses.map((bus, idx) => (
+                          <div 
+                            key={`${stopName}-${idx}`} 
+                            className="flex items-center justify-between px-4 py-3.5 gap-4"
+                          >
+                            {/* 左側資訊區：使用 flex-1 確保佔滿空間 */}
+                            <div className="flex items-start gap-3 min-w-0 flex-1">
+                              {/* 路線名稱 (如：紅線) */}
+                              <span className="text-sm font-black text-foreground shrink-0 mt-0.5">
+                                {bus.route.split(" ")[0]}
                               </span>
                               
-                              {/* 子路線標籤 */}
-                              <div className="flex">
-                                <span className="text-[10px] text-emerald-700 font-medium bg-white/70 px-1.5 py-0.5 rounded shadow-sm border border-emerald-100/50 whitespace-normal break-all">
-                                  {bus.route.includes("(") 
-                                    ? bus.route.match(/\(([^)]+)\)/)?.[1] + ")"
-                                    : bus.status}
+                              {/* 分隔線 */}
+                              <div className="w-px h-8 bg-border/50 shrink-0" />
+                              
+                              {/* 目的地與子路線 */}
+                              <div className="flex flex-col min-w-0 gap-1">
+                                {/* 目的地 */}
+                                <span className="text-sm text-foreground font-semibold leading-tight">
+                                  {bus.destination}
                                 </span>
+                                
+                                {/* 子路線標籤 */}
+                                <div className="flex">
+                                  <span className="text-[10px] text-emerald-700 font-medium bg-white/70 px-1.5 py-0.5 rounded shadow-sm border border-emerald-100/50 whitespace-normal break-all">
+                                    {bus.route.includes("(") 
+                                      ? bus.route.match(/\(([^)]+)\)/)?.[1] + ")"
+                                      : bus.status}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          {/* 右側時間區 */}
-                          <div className="text-right shrink-0 min-w-[3.5rem]">
-                            <span className={`text-base font-bold tabular-nums ${
-                              bus.eta.includes("分") ? "text-emerald-600 animate-pulse" : "text-foreground/60"
-                            }`}>
-                              {bus.eta}
-                            </span>
+                            {/* 右側時間區 */}
+                            <div className="text-right shrink-0 min-w-[3.5rem]">
+                              <span className={`text-base font-bold tabular-nums ${
+                                bus.eta.includes("分") ? "text-emerald-600 animate-pulse" : "text-foreground/60"
+                              }`}>
+                                {bus.eta}
+                              </span>
+                            </div>
                           </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light">
+                          {stspLoading || stspRefreshing ? "STSP資料更新中..." : "目前無即時班次資訊"}
                         </div>
-                      ))
-                    ) : (
-                      <div className="px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light">
-                        目前無即時班次資訊
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </section>
 
             {/* YouBike section */}
