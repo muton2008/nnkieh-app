@@ -318,7 +318,7 @@ export function TransportPage() {
             </section>
 
             {/* STSP Bus section - 南科巡迴巴士 */}
-            <section aria-label="STSP公車資訊" className="space-y-4">
+            <section aria-label="STSP公車資訊">
               <div className="flex items-center gap-2 mb-2.5">
                 <Bus size={16} strokeWidth={1.5} className="text-foreground/60" />
                 <h2 className="text-sm font-medium text-foreground">
@@ -327,68 +327,57 @@ export function TransportPage() {
               </div>
 
               {Object.keys(stspData).length === 0 ? (
-                <div className="bg-macaron-green border border-border/50 rounded-md px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light">
+                <div className="bg-background border-l-[3px] border-l-emerald-400 border border-border/50 shadow-sm rounded-sm px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light mb-4">
                   {stspLoading || stspRefreshing ? "STSP資料更新中...需等待較久" : "目前無可用站點資料"}
                 </div>
               ) : (
                 Object.entries(stspData).map(([stopName, buses]) => (
-                  <div key={stopName} className="mb-5 last:mb-0">
-                    {/* 站點名稱標籤 */}
-                    <div className="flex items-center gap-1.5 mb-2 px-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      <span className="text-[11px] text-foreground/60 font-bold uppercase tracking-wider">
-                        {stopName}
-                      </span>
+                  <div key={stopName} className="mb-4 bg-background border border-border/50 border-l-[3px] border-l-emerald-400 shadow-sm rounded-sm overflow-hidden">
+                    {/* 站點標頭 */}
+                    <div className="px-4 py-2 border-b border-border/10 bg-emerald-500/5">
+                      <span className="text-sm font-bold text-emerald-800 dark:text-emerald-300">{stopName}</span>
                     </div>
 
-                    {/* 公車列表卡片 */}
-                    <div className="bg-macaron-green border border-border/50 rounded-md divide-y divide-border/50 overflow-hidden">
+                    {/* 公車列表 */}
+                    <div className="divide-y divide-border/40">
                       {buses && buses.length > 0 ? (
-                        buses.map((bus, idx) => (
-                          <div 
-                            key={`${stopName}-${idx}`} 
-                            className="flex items-center justify-between px-4 py-3.5 gap-4"
-                          >
-                            {/* 左側資訊區：使用 flex-1 確保佔滿空間 */}
-                            <div className="flex items-start gap-3 min-w-0 flex-1">
-                              {/* 路線名稱 (如：紅線) */}
-                              <span className="text-sm font-black text-foreground shrink-0 mt-0.5">
-                                {bus.route.split(" ")[0]}
-                              </span>
-                              
-                              {/* 分隔線 */}
-                              <div className="w-px h-8 bg-border/50 shrink-0" />
-                              
-                              {/* 目的地與子路線 */}
-                              <div className="flex flex-col min-w-0 gap-1">
-                                {/* 目的地 */}
-                                <span className="text-sm text-foreground font-semibold leading-tight">
-                                  {bus.destination}
-                                </span>
-                                
-                                {/* 子路線標籤 */}
-                                <div className="flex">
-                                  <span className="text-[10px] text-emerald-700 font-medium bg-white/70 px-1.5 py-0.5 rounded shadow-sm border border-emerald-100/50 whitespace-normal break-all">
-                                    {bus.route.includes("(") 
-                                      ? bus.route.match(/\(([^)]+)\)/)?.[1] + ")"
-                                      : bus.status}
+                        buses.map((bus, idx) => {
+                          const routeName = bus.route.split(" ")[0];
+                          const badgeColor = routeName.includes('紅') ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
+                             routeName.includes('藍') ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
+                             routeName.includes('橘') ? 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' :
+                             'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300';
+                          return (
+                            <div 
+                              key={`${stopName}-${idx}`} 
+                              className="flex items-center justify-between px-4 py-3 gap-4"
+                            >
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[9px] px-1 rounded-sm shrink-0 ${badgeColor}`}>
+                                    {routeName}
                                   </span>
+                                  <span className="text-sm text-foreground truncate">往 {bus.destination}</span>
                                 </div>
+                                <span className="text-[10px] text-muted-foreground/40 font-light line-clamp-1 mt-0.5">
+                                  {bus.route.includes("(") 
+                                    ? bus.route.match(/\(([^)]+)\)/)?.[1]
+                                    : bus.route}
+                                </span>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                <span className={`text-sm font-medium tabular-nums ${
+                                  bus.eta.includes("分") ? "text-emerald-500 animate-pulse" : parseInt(bus.eta) < 3 ? "text-red-500" : "text-foreground/70"
+                                }`}>
+                                  {bus.eta}
+                                </span>
                               </div>
                             </div>
-
-                            {/* 右側時間區 */}
-                            <div className="text-right shrink-0 min-w-[3.5rem]">
-                              <span className={`text-base font-bold tabular-nums ${
-                                bus.eta.includes("分") ? "text-emerald-600 animate-pulse" : "text-foreground/60"
-                              }`}>
-                                {bus.eta}
-                              </span>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
-                        <div className="px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light">
+                        <div className="px-4 py-4 text-[11px] text-muted-foreground/40 text-center italic font-light">
                           {stspLoading || stspRefreshing ? "STSP資料更新中..." : "目前無即時班次資訊"}
                         </div>
                       )}

@@ -51,7 +51,7 @@ export async function GET() {
   }
 
   try {
-    const stspRaw = await getNewSTSPBusData();
+    const stspRaw = await getSTSPBusData();
     const responseData: TransportSTSPResponse = {
       STSP_buses: normalizeSTSPData(stspRaw),
       updated_at: new Date().toISOString(),
@@ -92,13 +92,13 @@ export async function GET() {
 }
 
 
-/*
-// 已停用，外國IP無法連線
+
+// 已停用，外國IP無法連線，目前改用 Cloudflare Worker 代理
 async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
   try {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
     
-    // 你要查詢的兩個目標站點
     const TARGET_STOPS = ["南科實中", "民生水塔", "台鐵南科站"];
     const AUTH_TOKEN = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF" //public token
     
@@ -113,9 +113,9 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 
-            'Content-Type': 'application/json',*/
-            //'Accept': 'application/json, text/plain, */*',
-            /*'Authorization': AUTH_TOKEN,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': AUTH_TOKEN,
             'Origin': 'https://atis.stsp.gov.tw',
             'Referer': 'https://atis.stsp.gov.tw/businfo',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
@@ -131,27 +131,37 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
         }
 
         const json = await res.json();
-        //console.log(`Raw STSP Data for ${stopName}:`, json);
         const allRoutes = json.routes || [];
+
+        const getEtaText = (type: string, time: string) => {
+          if (type === "0") return "正常狀態";
+          if (type === "1") return "尚未發車";
+          if (type === "2") return "交管不停靠";
+          if (type === "3") return "末班車已過";
+          if (type === "4") return "今日未營運";
+          if (type === "5") return "即將到站";
+          if (type === "6") return time; 
+          return time || type;
+        };
 
         const filtered = allRoutes
           .filter((r: any) => {
             const isWanted = WANTED_ROUTES.some(name => r.routeName.includes(name));
-            const rawTime = r.estimateTime || "";
-            
-            const hasValidTime = rawTime.includes("分") || rawTime.includes(":");
-            
-            return isWanted && hasValidTime;
+            return isWanted;
           })
-          .map((r: any) => ({
-            route: `${r.routeName} (${r.subRouteName})`,
-            destination: r.destination,
-            eta: r.estimateTime.includes("分") ? r.estimateTime : r.estimateTime,
-            // 排序權重：行駛中(0)優於預排(6)
-            _sortWeight: r.estimateTime.includes("分") 
-              ? parseInt(r.estimateTime) 
-              : parseInt(r.estimateTime.replace(":", "")) + 1000
-          }))
+          .map((r: any) => {
+            const etaText = getEtaText(r.estimateTimeType, r.estimateTime);
+            return {
+              route: `${r.routeName} (${r.subRouteName})`,
+              destination: r.destination,
+              eta: etaText,
+              // 獨立的內部權重邏輯，越小越優先
+              _sortWeight: r.estimateTimeType === "5" ? 0 :
+                           r.estimateTimeType === "6" ? (parseInt(r.estimateTime) || 100) :
+                           r.estimateTimeType === "1" ? 200 :
+                           r.estimateTimeType === "0" ? 300 : 1000
+            };
+          })
           // 依抵達時間排序
           .sort((a: any, b: any) => a._sortWeight - b._sortWeight)
           // 每個站點僅取前 3 班
@@ -168,7 +178,6 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
     });
 
     await Promise.all(fetchPromises);
-    //console.log("STSP Bus Data:", finalData);
     return finalData;
 
   } catch (error) {
@@ -176,4 +185,3 @@ async function getSTSPBusData(): Promise<Record<string, STSPBusInfo[]>> {
     return {};
   }
 }
-*/
