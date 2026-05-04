@@ -56,7 +56,7 @@ async function getTrain(headers: Record<string, string>): Promise<{ north: Train
 
 async function getSTSPBusData(): Promise<TransportDataResponse["STSP_buses"]> {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
+  const url = "https://itsapi.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
   
   const AUTH_TOKEN = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF" //public token
   
@@ -68,7 +68,7 @@ async function getSTSPBusData(): Promise<TransportDataResponse["STSP_buses"]> {
     'http://34.81.160.132:80',
     'http://203.69.23.34:443',
     'http://211.72.142.231:443',
-    '180.218.97.121:80',
+    'http://180.218.97.121:80',
 
   ];
 
@@ -153,6 +153,87 @@ async function getSTSPBusData(): Promise<TransportDataResponse["STSP_buses"]> {
         .map(({ _sortWeight, ...info }: any) => info as STSPBusInfo);
 
       finalData[stopName] = filtered as STSPBusInfo[];
+  });
+
+  await Promise.all(fetchPromises);
+  return finalData as TransportDataResponse["STSP_buses"];
+}
+
+async function getNewSTSPBusData(): Promise<TransportDataResponse["STSP_buses"]> {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  const url = "https://itsapi.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
+
+  const AUTH_TOKEN = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"; // public token
+
+  // 指定要保留的路線關鍵字
+  const WANTED_ROUTES = ["紅線", "藍線", "橘線", "實中線", "LM線"];
+
+  // 初始化回傳容器
+  const finalData: Record<string, STSPBusInfo[]> = {};
+
+  const fetchPromises = STSP_TARGET_STOPS.map(async (stopName) => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*',
+          'Authorization': AUTH_TOKEN,
+          'Origin': 'https://atis.stsp.gov.tw',
+          'Referer': 'https://atis.stsp.gov.tw/businfo',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+        },
+        body: JSON.stringify({ stopName, language: "ZH" }),
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        console.warn(`STSP API Error for ${stopName}:`, res.status);
+        finalData[stopName] = [];
+        return;
+      }
+
+      const json = await res.json();
+      const allRoutes = json.routes || [];
+
+      const getEtaText = (type: string, time: string) => {
+        if (type === "0") return "正常狀態";
+        if (type === "1") return "尚未發車";
+        if (type === "2") return "交管不停靠";
+        if (type === "3") return "末班車已過";
+        if (type === "4") return "今日未營運";
+        if (type === "5") return "即將到站";
+        if (type === "6") return time;
+        return time || type;
+      };
+
+      const filtered = allRoutes
+        .filter((r: any) => WANTED_ROUTES.some(name => r.routeName.includes(name)))
+        .map((r: any) => {
+          const etaText = getEtaText(r.estimateTimeType, r.estimateTime);
+          return {
+            route: `${r.routeName} (${r.subRouteName})`,
+            destination: r.destination,
+            eta: etaText,
+            // 獨立的內部權重邏輯，越小越優先
+            _sortWeight: r.estimateTimeType === "5" ? 0 :
+              r.estimateTimeType === "6" ? (parseInt(r.estimateTime) || 100) :
+                r.estimateTimeType === "1" ? 200 :
+                  r.estimateTimeType === "0" ? 300 : 1000
+          };
+        })
+        // 依抵達時間排序
+        .sort((a: any, b: any) => a._sortWeight - b._sortWeight)
+        // 每個站點僅取前 3 班
+        .slice(0, 3)
+        // 移除內部的排序權重欄位
+        .map(({ _sortWeight, ...info }: any) => info as STSPBusInfo);
+
+      finalData[stopName] = filtered as STSPBusInfo[];
+    } catch (error) {
+      console.warn(`STSP API request failed for ${stopName}:`, error);
+      finalData[stopName] = [];
+    }
   });
 
   await Promise.all(fetchPromises);
@@ -294,7 +375,7 @@ export async function GET() {
       getTrain(headers),
       getBus(headers),
       getYouBike(headers),
-      getSTSPBusData()
+      getNewSTSPBusData()
     ]);
 
     const trainData = results[0].status === 'fulfilled' ? results[0].value 
