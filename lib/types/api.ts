@@ -1,5 +1,5 @@
 import { WeekSchedule } from './timetable';
-import { TrainInfo, BusInfo, STSPBusInfo, YouBikeStation } from './transport';
+import { TrainInfo, BusInfo, STSPBusInfo, YouBikeStation, STSP_TARGET_STOPS } from './transport';
 import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -306,13 +306,8 @@ export interface TransportDataResponse {
   trains_south: TrainInfo[];
   trains_north: TrainInfo[];
   buses: BusInfo[];
-  STSP_buses: Record<"南科實中" | "民生水塔" | "台鐵南科站", STSPBusInfo[]>;
+  STSP_buses: Record<typeof STSP_TARGET_STOPS[number], STSPBusInfo[]>;
   youbike: YouBikeStation[];
-  updated_at: string;
-}
-
-export interface TransportSTSPResponse {
-  STSP_buses: Record<"南科實中" | "民生水塔" | "台鐵南科站", STSPBusInfo[]>;
   updated_at: string;
 }
 

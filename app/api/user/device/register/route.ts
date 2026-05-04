@@ -46,6 +46,7 @@ export async function POST(req: Request) {
         device_id,
         division: "no disturb",
         notify_all: false,
+        notify_categories: [],
       });
 
     if (insertError) {

@@ -38,6 +38,7 @@ interface UserProfile {
   device_id: string;
   division: SchoolDivision;
   notify_all: boolean;
+  notify_categories?: number[];
   fcm_token?: string;
   updated_at?: string;
 }
@@ -356,6 +357,38 @@ async function geminiClassify(
 
 // ==================== Notification Module ====================
 
+const CATEGORY_TOPIC_KEYS: Record<number, string> = {
+  0: "news_exam",
+  1: "news_learning",
+  2: "news_activity",
+  3: "news_admin",
+  4: "news_admission",
+  5: "news_general",
+  6: "news_teacher",
+};
+
+const IMPORTANT_TOPICS: Record<Exclude<SchoolDivision, "no disturb">, string> = {
+  junior: "news_important_junior",
+  high: "news_important_high",
+  all: "news_important_all",
+};
+
+function buildImportantTopics(announcementDivisions: string[]): string[] {
+  const topics: string[] = [];
+  const hasJunior = announcementDivisions.includes("國中部");
+  const hasHigh = announcementDivisions.includes("高中部");
+
+  if (hasJunior) topics.push(IMPORTANT_TOPICS.junior);
+  if (hasHigh) topics.push(IMPORTANT_TOPICS.high);
+  if (!hasJunior && !hasHigh) topics.push(IMPORTANT_TOPICS.all);
+
+  return topics;
+}
+
+function buildCategoryTopic(categoryId: number): string | null {
+  return CATEGORY_TOPIC_KEYS[categoryId] || null;
+}
+
 /**
  * 判斷用戶的部別是否與公告的部別匹配
  */
@@ -386,20 +419,14 @@ function divisionMatches(
 /**
  * 判斷用戶是否應該接收該公告的通知
  */
-function shouldUserReceiveNotification(
+function shouldUserReceiveImportantNotification(
   user: UserProfile,
-  importance: number,
   announcementDivisions: string[]
 ): boolean {
-  if (importance === -1) {
-    return false;
-  }
-  // 用戶選擇不打擾
   if (user.division === "no disturb") {
     return false;
   }
 
-  // 沒有 FCM token 無法發送
   if (!user.fcm_token) {
     return false;
   }
@@ -408,11 +435,58 @@ function shouldUserReceiveNotification(
     return true;
   }
 
-  // 檢查部別是否匹配
-  if ( importance === 1) {
-    return divisionMatches(user.division, announcementDivisions);
+  return divisionMatches(user.division, announcementDivisions);
+}
+
+function shouldUserReceiveCategoryNotification(
+  user: UserProfile,
+  categoryId: number
+): boolean {
+  if (categoryId < 0) {
+    return false;
   }
-  return false;
+
+  if (!user.fcm_token) {
+    return false;
+  }
+
+  if (user.notify_all) {
+    return true;
+  }
+
+  const categories = user.notify_categories || [];
+  return categories.includes(categoryId);
+}
+
+async function getFcmAuth(): Promise<{ accessToken: string; projectId: string } | null> {
+  const serviceAccountStr = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
+  if (!serviceAccountStr) {
+    console.warn("⚠️ 缺少 FIREBASE_SERVICE_ACCOUNT，無法發送 FCM");
+    return null;
+  }
+
+  let serviceAccount: any;
+  try {
+    serviceAccount = JSON.parse(serviceAccountStr);
+  } catch (e) {
+    console.error("FIREBASE_SERVICE_ACCOUNT 解析失敗", e);
+    return null;
+  }
+
+  const auth = new GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
+  });
+
+  try {
+    const client = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    const accessToken = tokenResponse.token || tokenResponse;
+    return { accessToken, projectId: serviceAccount.project_id };
+  } catch (e) {
+    console.error("取得 FCM access token 失敗", e);
+    return null;
+  }
 }
 
 /**
@@ -431,41 +505,15 @@ async function sendFCMBroadcast(
     return;
   }
 
-  // 1. 取得 service account 並初始化 GoogleAuth
-  const serviceAccountStr = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
-  if (!serviceAccountStr) {
-    console.warn("⚠️ 缺少 FIREBASE_SERVICE_ACCOUNT，無法發送 FCM");
-    return;
-  }
-  let serviceAccount: any;
-  try {
-    serviceAccount = JSON.parse(serviceAccountStr);
-  } catch (e) {
-    console.error("FIREBASE_SERVICE_ACCOUNT 解析失敗", e);
-    return;
-  }
-
-  const auth = new GoogleAuth({
-    credentials: serviceAccount,
-    scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
-  });
-
-  let accessToken = "";
-  try {
-    const client = await auth.getClient();
-    const tokenResponse = await client.getAccessToken();
-    accessToken = tokenResponse.token || tokenResponse;
-  } catch (e) {
-    console.error("取得 FCM access token 失敗", e);
-    return;
-  }
+  const auth = await getFcmAuth();
+  if (!auth) return;
 
   const shortDescription =
     description.length > 150
       ? description.substring(0, 150) + "..."
       : description;
 
-  const projectId = serviceAccount.project_id;
+  const projectId = auth.projectId;
   for (const token of fcmTokens) {
     try {
       const response = await fetch(
@@ -474,7 +522,7 @@ async function sendFCMBroadcast(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${auth.accessToken}`,
           },
           body: JSON.stringify({
             message: {
@@ -537,6 +585,96 @@ async function sendFCMBroadcast(
         `❌ FCM 連線 Token ${token.substring(0, 20)}... 時發生異常: ${e}`
       );
     }
+  }
+}
+
+function buildTopicCondition(topics: string[]): string {
+  return topics.map((topic) => `'${topic}' in topics`).join(" || ");
+}
+
+async function sendFCMTopicBroadcast(
+  title: string,
+  link: string,
+  description: string,
+  topics: string[],
+  postId: string | null = null
+): Promise<void> {
+  if (!topics.length) return;
+
+  const auth = await getFcmAuth();
+  if (!auth) return;
+
+  const shortDescription =
+    description.length > 150
+      ? description.substring(0, 150) + "..."
+      : description;
+
+  const condition = buildTopicCondition(topics);
+
+  try {
+    const response = await fetch(
+      `https://fcm.googleapis.com/v1/projects/${auth.projectId}/messages:send`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.accessToken}`,
+        },
+        body: JSON.stringify({
+          message: {
+            condition,
+            notification: {
+              title: title,
+              body: shortDescription,
+            },
+            data: {
+              title: title,
+              type: "announcement",
+              announcement_id: postId ? String(postId) : "",
+              post_id: postId ? String(postId) : "",
+              link: postId
+                ? `/?type=announcement&announcement_id=${postId}`
+                : `/?tab=news`,
+              original_link: link,
+            },
+            webpush: {
+              fcm_options: {
+                link: postId
+                  ? `/?type=announcement&announcement_id=${postId}`
+                  : `/?tab=news`,
+              },
+            },
+            android: {
+              notification: {
+                click_action: "OPEN_URL",
+              },
+            },
+            apns: {
+              payload: {
+                aps: {
+                  alert: {
+                    title: title,
+                    body: shortDescription,
+                  },
+                },
+              },
+              fcm_options: {
+                image: undefined,
+              },
+            },
+          },
+        }),
+      }
+    );
+
+    if (response.ok) {
+      console.log(`✅ 成功發送 FCM topics (${topics.length}) - ${title.substring(0, 25)}`);
+    } else {
+      const errorText = await response.text();
+      console.error(`❌ FCM topics 發送失敗 (${topics.join("|")}): ${errorText}`);
+    }
+  } catch (e) {
+    console.error(`❌ FCM topics 連線失敗 (${topics.join("|")}): ${e}`);
   }
 }
 
@@ -809,42 +947,85 @@ async function runTask(
 
       // 發送 FCM 通知給符合條件的用戶
       if (firebaseApiKey) {
+        if (classificationResult.importance === 1) {
+          const categoryTopic = buildCategoryTopic(
+            classificationResult.category_id
+          );
+          const topics = categoryTopic
+            ? [...buildImportantTopics(ann.category), categoryTopic]
+            : buildImportantTopics(ann.category);
+          await sendFCMTopicBroadcast(
+            ann.title,
+            ann.url,
+            ann.description,
+            Array.from(new Set(topics)),
+            ann.post_id
+          );
+        } else if (classificationResult.importance === 0) {
+          const categoryTopic = buildCategoryTopic(
+            classificationResult.category_id
+          );
+          if (categoryTopic) {
+            await sendFCMTopicBroadcast(
+              ann.title,
+              ann.url,
+              ann.description,
+              [categoryTopic],
+              ann.post_id
+            );
+          }
+        }
+
         const { data: users, error: usersError } = await supabase
           .from("user_profiles")
-          .select("device_id, division, notify_all, fcm_token")
+          .select("device_id, division, notify_all, notify_categories, fcm_token")
           .not("fcm_token", "is", null);
 
         if (usersError) {
           console.error(`查詢用戶失敗: ${usersError}`);
         } else if (users && users.length > 0) {
-          const eligibleTokens: string[] = [];
+          const eligibleTokens = new Set<string>();
 
           for (const user of users) {
             const userProfile: UserProfile = {
               device_id: user.device_id,
               division: user.division as SchoolDivision,
               notify_all: user.notify_all,
+              notify_categories: user.notify_categories || [],
               fcm_token: user.fcm_token,
             };
 
-            if (
-              shouldUserReceiveNotification(
+            if (classificationResult.importance === 1) {
+              const shouldReceiveImportant = shouldUserReceiveImportantNotification(
                 userProfile,
-                classificationResult.importance,
                 ann.category
-              )
-            ) {
-              eligibleTokens.push(user.fcm_token);
+              );
+              const shouldReceiveCategory = shouldUserReceiveCategoryNotification(
+                userProfile,
+                classificationResult.category_id
+              );
+              if (shouldReceiveImportant || shouldReceiveCategory) {
+                eligibleTokens.add(user.fcm_token);
+              }
+            } else if (classificationResult.importance === 0) {
+              if (
+                shouldUserReceiveCategoryNotification(
+                  userProfile,
+                  classificationResult.category_id
+                )
+              ) {
+                eligibleTokens.add(user.fcm_token);
+              }
             }
           }
 
-          if (eligibleTokens.length > 0) {
+          if (eligibleTokens.size > 0) {
             await sendFCMBroadcast(
               ann.title,
               ann.url,
               ann.description,
               firebaseApiKey,
-              eligibleTokens,
+              Array.from(eligibleTokens),
               ann.post_id // 傳入 post_id 組合深連結
             );
           } else {

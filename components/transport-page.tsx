@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { RefreshCw, TrainFront, Bus, Bike, ArrowDown, ArrowUp, Loader2 } from "lucide-react";
 import { SkeletonBlock } from "./skeleton-block";
 import { TransportDataResponse } from "@/lib/types/api";
-import { fetchTransportData, fetchTransportSTSPData } from "@/lib/api-client";
+import { fetchTransportData } from "@/lib/api-client";
 
 const AUTO_REFRESH_INTERVAL = 60_000; // 60 秒自動刷新
 
@@ -66,34 +66,10 @@ function BikeBar({ available, total }: { available: number; total: number }) {
 export function TransportPage() {
   const [loading, setLoading] = useState(true);         // 首次載入（顯示骨架屏）
   const [refreshing, setRefreshing] = useState(false);   // 背景刷新中
-  const [stspLoading, setStspLoading] = useState(false);
-  const [stspRefreshing, setStspRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(0);
-  const [stspLastUpdate, setStspLastUpdate] = useState(0);
   const [transportData, setTransportData] = useState<TransportDataResponse | null>(null);
-  const [stspData, setStspData] = useState<TransportDataResponse["STSP_buses"]>({
-    "南科實中": [],
-    "民生水塔": [],
-    "台鐵南科站": []
-  });
   const [error, setError] = useState<string | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const refreshSTSP = useCallback(async (isBackground: boolean) => {
-    if (isBackground) setStspRefreshing(true);
-    else setStspLoading(true);
-
-    try {
-      const data = await fetchTransportSTSPData(true);
-      setStspData(data.STSP_buses);
-      setStspLastUpdate(Date.now());
-    } catch (err) {
-      console.error("STSP資料載入失敗:", err);
-    } finally {
-      if (isBackground) setStspRefreshing(false);
-      else setStspLoading(false);
-    }
-  }, []);
 
   /** 取得資料（forceRefresh = true 跳過客戶端快取） */
   const doFetch = useCallback(async (isBackground: boolean) => {
@@ -121,21 +97,18 @@ export function TransportPage() {
   // 首次載入 + 自動刷新
   useEffect(() => {
     doFetch(false);
-    void refreshSTSP(false);
 
     autoRefreshRef.current = setInterval(() => {
       doFetch(true);
-      void refreshSTSP(true);
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
       if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
     };
-  }, [doFetch, refreshSTSP]);
+  }, [doFetch]);
 
   // 倒計時顯示
   const [secondsAgo, setSecondsAgo] = useState(0);
-  const [stspSecondsAgo, setStspSecondsAgo] = useState(0);
   useEffect(() => {
     if (!lastUpdate) return;
     const interval = setInterval(() => {
@@ -144,20 +117,11 @@ export function TransportPage() {
     return () => clearInterval(interval);
   }, [lastUpdate]);
 
-  useEffect(() => {
-    if (!stspLastUpdate) return;
-    const interval = setInterval(() => {
-      setStspSecondsAgo(Math.floor((Date.now() - stspLastUpdate) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [stspLastUpdate]);
-
   /** 手動刷新（背景模式，不擋畫面） */
   const handleRefresh = useCallback(async () => {
-    if (refreshing || stspRefreshing || loading) return;
+    if (refreshing || loading) return;
     doFetch(true);
-    void refreshSTSP(true);
-  }, [refreshing, stspRefreshing, loading, doFetch, refreshSTSP]);
+  }, [refreshing, loading, doFetch]);
 
   return (
     <div className="flex flex-col h-full relative">
@@ -194,20 +158,17 @@ export function TransportPage() {
             <span className="text-[10px] text-muted-foreground/55 font-light tabular-nums">
               主資料：{loading && !transportData ? "載入中" : refreshing ? "更新中" : `${secondsAgo} 秒前`}
             </span>
-            <span className="text-[10px] text-muted-foreground/55 font-light tabular-nums">
-              巡迴巴士：{stspLoading ? "載入中" : stspRefreshing ? "更新中" : stspLastUpdate ? `${stspSecondsAgo} 秒前` : "尚未更新"}
-            </span>
           </div>
           <button
             onClick={handleRefresh}
-            disabled={refreshing || stspRefreshing || (loading && !transportData)}
+            disabled={refreshing || (loading && !transportData)}
             className="p-2 -m-0.5 text-muted-foreground hover:text-foreground active:scale-90 transition-all disabled:opacity-30 rounded-full hover:bg-foreground/5"
             aria-label="重新整理"
           >
             <RefreshCw
               size={16}
               strokeWidth={1.5}
-              className={`transition-transform ${refreshing || stspRefreshing ? "animate-spin" : ""}`}
+              className={`transition-transform ${refreshing ? "animate-spin" : ""}`}
             />
           </button>
         </div>
@@ -326,12 +287,12 @@ export function TransportPage() {
                 </h2>
               </div>
 
-              {Object.keys(stspData).length === 0 ? (
+              {!transportData?.STSP_buses || Object.keys(transportData.STSP_buses).length === 0 ? (
                 <div className="bg-background border-l-[3px] border-l-emerald-400 border border-border/50 shadow-sm rounded-sm px-4 py-6 text-[11px] text-muted-foreground/40 text-center italic font-light mb-4">
-                  {stspLoading || stspRefreshing ? "STSP資料更新中...需等待較久" : "目前無可用站點資料"}
+                  {refreshing ? "STSP資料更新中...需等待較久" : "目前無可用站點資料"}
                 </div>
               ) : (
-                Object.entries(stspData).map(([stopName, buses]) => (
+                Object.entries(transportData.STSP_buses).map(([stopName, buses]) => (
                   <div key={stopName} className="mb-4 bg-background border border-border/50 border-l-[3px] border-l-emerald-400 shadow-sm rounded-sm overflow-hidden">
                     {/* 站點標頭 */}
                     <div className="px-4 py-2 border-b border-border/10 bg-emerald-500/5">
@@ -343,6 +304,8 @@ export function TransportPage() {
                       {buses && buses.length > 0 ? (
                         buses.map((bus, idx) => {
                           const routeName = bus.route.split(" ")[0];
+                          const subRouteRaw = bus.route.substring(routeName.length).trim();
+                          const cleanSubRoute = subRouteRaw.replace(/^\(|\)$/g, ''); // 移除最外層括號
                           const badgeColor = routeName.includes('紅') ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
                              routeName.includes('藍') ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
                              routeName.includes('橘') ? 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' :
@@ -360,9 +323,7 @@ export function TransportPage() {
                                   <span className="text-sm text-foreground truncate">往 {bus.destination}</span>
                                 </div>
                                 <span className="text-[10px] text-muted-foreground/40 font-light line-clamp-1 mt-0.5">
-                                  {bus.route.includes("(") 
-                                    ? bus.route.match(/\(([^)]+)\)/)?.[1]
-                                    : bus.route}
+                                  {cleanSubRoute || bus.route}
                                 </span>
                               </div>
 
@@ -378,7 +339,7 @@ export function TransportPage() {
                         })
                       ) : (
                         <div className="px-4 py-4 text-[11px] text-muted-foreground/40 text-center italic font-light">
-                          {stspLoading || stspRefreshing ? "STSP資料更新中..." : "目前無即時班次資訊"}
+                          {refreshing ? "STSP資料更新中..." : "目前無即時班次資訊"}
                         </div>
                       )}
                     </div>

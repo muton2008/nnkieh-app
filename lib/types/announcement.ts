@@ -1,4 +1,4 @@
-import { SchoolDivision } from "./user";
+import type { SchoolDivision } from "./user";
 
 // --- 公告 ---
 export interface Announcement {
@@ -59,4 +59,14 @@ export const CATEGORY_BG_COLORS: Record<AnnouncementCategory, string> = {
   4: 'bg-pink-50 text-pink-700 border-pink-200',
   5: 'bg-stone-50 text-stone-600 border-stone-200',
   6: 'bg-teal-50 text-teal-700 border-teal-200',
+};
+
+export const CATEGORY_TOPIC_KEYS: Record<AnnouncementCategory, string> = {
+  0: 'news_exam',
+  1: 'news_learning',
+  2: 'news_activity',
+  3: 'news_admin',
+  4: 'news_admission',
+  5: 'news_general',
+  6: 'news_teacher',
 };

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getTDXToken } from '@/lib/tdx';
-import type { TrainInfo, DirectionInfo, BusInfo, YouBikeData, YouBikeStation } from '@/lib/types/transport';
+import { TrainInfo, DirectionInfo, BusInfo, YouBikeData, YouBikeStation, STSPBusInfo, STSP_TARGET_STOPS } from '@/lib/types/transport';
 import type { TransportDataResponse } from '@/lib/types/api';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 // Server-side in-memory cache
 const CACHE_TTL_MS = 60_000;
@@ -53,7 +54,112 @@ async function getTrain(headers: Record<string, string>): Promise<{ north: Train
   return { north, south };
 }
 
-async function getBus(headers: Record<string, string>): Promise<BusInfo[]> {
+async function getSTSPBusData(): Promise<TransportDataResponse["STSP_buses"]> {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  const url = "https://atis.stsp.gov.tw/STSPapi/api/bus/getStopRouteDynamicInfoByStopnameByLang?$format=json";
+  
+  const AUTH_TOKEN = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF" //public token
+  
+  // 指定要保留的路線關鍵字
+  const WANTED_ROUTES = ["紅線", "藍線", "橘線", "實中線", "LM線"];
+
+  // 建立 proxy 池，失敗時輪換
+  const PROXY_POOL = [
+    'http://34.81.160.132:80',
+    'http://203.69.23.34:443',
+    'http://211.72.142.231:443',
+    '180.218.97.121:80',
+
+  ];
+
+  // 初始化回傳容器
+  const finalData: Record<string, STSPBusInfo[]> = {};
+
+  const fetchPromises = STSP_TARGET_STOPS.map(async (stopName) => {
+    let json = null;
+
+    // 嘗試輪換 proxy
+    for (const proxyUrl of PROXY_POOL) {
+      try {
+        const proxyAgent = new HttpsProxyAgent(proxyUrl);
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
+            'Authorization': AUTH_TOKEN,
+            'Origin': 'https://atis.stsp.gov.tw',
+            'Referer': 'https://atis.stsp.gov.tw/businfo',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36'
+          },
+          body: JSON.stringify({ stopName: stopName, language: "ZH" }),
+          cache: 'no-store',
+          agent: proxyAgent,
+        } as RequestInit & { agent: any });
+
+        if (res.ok) {
+          json = await res.json();
+          break; // 成功取得資料，跳出迴圈
+        } else {
+          console.warn(`STSP API Error for ${stopName} using proxy ${proxyUrl}:`, res.status);
+        }
+      } catch (e) {
+        console.warn(`Proxy ${proxyUrl} failed for ${stopName}:`, e);
+      }
+    }
+
+    if (!json) {
+      console.error(`All proxies failed for STSP API: ${stopName}`);
+      finalData[stopName] = [];
+      return;
+    }
+
+    const allRoutes = json.routes || [];
+
+    const getEtaText = (type: string, time: string) => {
+        if (type === "0") return "正常狀態";
+        if (type === "1") return "尚未發車";
+        if (type === "2") return "交管不停靠";
+        if (type === "3") return "末班車已過";
+        if (type === "4") return "今日未營運";
+        if (type === "5") return "即將到站";
+        if (type === "6") return time; 
+        return time || type;
+      };
+
+      const filtered = allRoutes
+        .filter((r: any) => {
+          const isWanted = WANTED_ROUTES.some(name => r.routeName.includes(name));
+          return isWanted;
+        })
+        .map((r: any) => {
+          const etaText = getEtaText(r.estimateTimeType, r.estimateTime);
+          return {
+            route: `${r.routeName} (${r.subRouteName})`,
+            destination: r.destination,
+            eta: etaText,
+            // 獨立的內部權重邏輯，越小越優先
+            _sortWeight: r.estimateTimeType === "5" ? 0 :
+                          r.estimateTimeType === "6" ? (parseInt(r.estimateTime) || 100) :
+                          r.estimateTimeType === "1" ? 200 :
+                          r.estimateTimeType === "0" ? 300 : 1000
+          };
+        })
+        // 依抵達時間排序
+        .sort((a: any, b: any) => a._sortWeight - b._sortWeight)
+        // 每個站點僅取前 3 班
+        .slice(0, 3)
+        // 移除內部的排序權重欄位
+        .map(({ _sortWeight, ...info }: any) => info as STSPBusInfo);
+
+      finalData[stopName] = filtered as STSPBusInfo[];
+  });
+
+  await Promise.all(fetchPromises);
+  return finalData as TransportDataResponse["STSP_buses"];
+}
+
+async function getBus(headers: Record<string, string>): Promise<TransportDataResponse["buses"]> {
   const TARGET_ROUTES = ["綠2", "綠3", "橘12", "橘14"];
   const TARGET_STOPS = ["南科實中", "民生水塔"];
 
@@ -135,7 +241,7 @@ async function getBus(headers: Record<string, string>): Promise<BusInfo[]> {
   });
 }
 
-async function getYouBike(headers: Record<string, string>): Promise<YouBikeStation[]> {
+async function getYouBike(headers: Record<string, string>): Promise<TransportDataResponse["youbike"]> {
   const STATIONS = [
     { id: "501330008", name: "南科實中國中部" },
     { id: "501330010", name: "民生水塔" },
@@ -187,7 +293,8 @@ export async function GET() {
     const results = await Promise.allSettled([
       getTrain(headers),
       getBus(headers),
-      getYouBike(headers)
+      getYouBike(headers),
+      getSTSPBusData()
     ]);
 
     const trainData = results[0].status === 'fulfilled' ? results[0].value 
@@ -195,9 +302,12 @@ export async function GET() {
       
     const busData = results[1].status === 'fulfilled' ? results[1].value 
       : (cachedResponse ? cachedResponse.buses : []);
-      
+
     const youbikeData = results[2].status === 'fulfilled' ? results[2].value 
       : (cachedResponse ? cachedResponse.youbike : []);
+
+    const stspData = results[3].status === 'fulfilled' ? results[3].value 
+      : (cachedResponse ? cachedResponse.STSP_buses : {});
 
     const hasError = results.some(r => r.status === 'rejected');
 
@@ -214,11 +324,7 @@ export async function GET() {
       trains_south: trainData.south,
       trains_north: trainData.north,
       buses: busData,
-      STSP_buses: {
-          "南科實中": [],
-          "民生水塔": [],
-          "台鐵南科站": []
-      },
+      STSP_buses: stspData,
       youbike: youbikeData,
       updated_at: new Date().toISOString()
     };

@@ -20,6 +20,7 @@ export interface BusInfo {
   inbound: DirectionInfo[];  // Direction: 1
 }
 
+export const STSP_TARGET_STOPS = ["南科實中", "民生水塔", "台鐵南科站"];
 export interface STSPBusInfo { 
     route: string; 
     destination: string; 

@@ -13,7 +13,6 @@ import {
   FetchAnnouncementsResponse,
   FetchAnnouncementByIdResponse,
   TransportDataResponse,
-  TransportSTSPResponse,
   AddNoteRequest,
   AddNoteResponse,
   SyncUserProfileRequest,
@@ -74,11 +73,6 @@ function getCachedData<T>(key: string): { data: T; fresh: boolean } | null {
 function setCachedData<T>(key: string, data: T): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
-}
-
-function removeCachedData(key: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(key);
 }
 
 /** 統一 Fetch 工具（自動加上平台對應的 base URL） */
@@ -547,61 +541,15 @@ export function saveLocalPrivateEvents(events: PrivateCalendarEvent[]): void {
 // ============================================================
 
 export async function fetchTransportData(forceRefresh = false): Promise<TransportDataResponse> {
-  const cacheKey = "cache_transport";
   if (!forceRefresh) {
-    const cached = getCachedData<TransportDataResponse>(cacheKey);
+    const cached = getCachedData<TransportDataResponse>("cache_transport");
     if (cached?.fresh) return cached.data;
   }
 
-  try {
-    const res = await rawRequest(`/api/transport?_t=${Date.now()}`);
-    
-    if (res.status === 200) {
-      const data = await res.json();
-      setCachedData(cacheKey, data);
-      return data;
-    } else if (res.status === 206) {
-      // 發生部分錯誤 (如其中一個交通 API 異常)，回傳殘缺資料但不儲存快取
-      removeCachedData(cacheKey);
-      const data = await res.json();
-      return data;
-    } else {
-      removeCachedData(cacheKey);
-      let body: Record<string, unknown> = {};
-      try { body = await res.json(); } catch { /* ignore */ }
-      throw new ApiError(`API Error: ${res.status}`, res.status, body);
-    }
-  } catch (err) {
-    removeCachedData(cacheKey);
-    throw err;
-  }
-}
-
-export async function fetchTransportSTSPData(forceRefresh = false): Promise<TransportSTSPResponse> {
-  const cacheKey = "cache_transport_stsp";
-  if (!forceRefresh) {
-    const cached = getCachedData<TransportSTSPResponse>(cacheKey);
-    if (cached?.fresh) return cached.data;
-  }
-
-  try {
-    const res = await rawRequest(`/api/transport/stsp?_t=${Date.now()}`);
-    
-    if (res.status === 200) {
-      const data = await res.json();
-      setCachedData(cacheKey, data);
-      return data;
-    } else {
-      // STSP API 如果異常，回傳 503 或其他錯誤
-      removeCachedData(cacheKey);
-      let body: Record<string, unknown> = {};
-      try { body = await res.json(); } catch { /* ignore */ }
-      throw new ApiError(`API Error: ${res.status}`, res.status, body);
-    }
-  } catch (err) {
-    removeCachedData(cacheKey);
-    throw err;
-  }
+  // 加上時間戳防止 HTTP 層快取（CapacitorHttp / CDN / browser）
+  const data = await request<TransportDataResponse>(`/api/transport?_t=${Date.now()}`);
+  setCachedData("cache_transport", data);
+  return data;
 }
 
 /** 取得 WebAuthn 綁定狀態 */

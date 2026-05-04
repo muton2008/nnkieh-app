@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Check, RefreshCw, Bell, BellOff, Copy, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFCMToken } from "@/lib/firebase";
+import { syncTopicSubscriptions, supportsTopicSubscriptions } from "@/lib/fcm-topics";
 import { toast } from "sonner";
 
 import {
@@ -11,6 +12,8 @@ import {
   UserProfile,
   SchoolDivision,
 } from "@/lib/types/user";
+import { CATEGORY_LABELS } from "@/lib/types/announcement";
+import type { AnnouncementCategory } from "@/lib/types/announcement";
 import {
   getLocalUserProfile,
   saveLocalUserProfile,
@@ -28,6 +31,21 @@ const DIVISION_OPTIONS: { value: SchoolDivision; label: string; desc: string }[]
   { value: "high", label: "高中部", desc: "僅接收高中部重要通知" },
   { value: "all", label: "全部", desc: "接收所有重要通知" },
 ];
+
+const CATEGORY_OPTIONS: { id: AnnouncementCategory; label: string }[] = Object.entries(
+  CATEGORY_LABELS
+).map(([id, label]) => ({ id: Number(id) as AnnouncementCategory, label }));
+
+const ALL_CATEGORY_IDS = CATEGORY_OPTIONS.map((item) => item.id);
+
+function normalizeProfile(input: Partial<UserProfile>, deviceId: string): UserProfile {
+  return {
+    ...DEFAULT_USER_PROFILE,
+    ...input,
+    device_id: deviceId,
+    notify_categories: input.notify_categories ?? DEFAULT_USER_PROFILE.notify_categories,
+  };
+}
 
 interface SettingsPageProps {
   deviceId: string;
@@ -67,9 +85,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     const init = async () => {
       // 1. 讀取 LocalStorage
       const stored = getLocalUserProfile();
-      const local = stored
-        ? { ...stored, device_id: deviceId }
-        : { ...DEFAULT_USER_PROFILE, device_id: deviceId };
+      const local = normalizeProfile(stored || {}, deviceId);
       if (!cancelled) {
         setProfile(local);
         setLoading(false);
@@ -82,7 +98,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         try {
           const res = await fetchUserProfile(deviceId);
           if (!cancelled && res.success && res.profile) {
-            const merged = { ...res.profile, device_id: deviceId };
+            const merged = normalizeProfile(res.profile, deviceId);
             setProfile(merged);
             saveLocalUserProfile(merged);
           }
@@ -106,7 +122,12 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     setSyncStatus("syncing");
 
     try {
-      const needsNotification = profile.division !== "no disturb" || profile.notify_all;
+      const selectedCategories = profile.notify_categories ?? [];
+      const needsNotification =
+        profile.division !== "no disturb" ||
+        profile.notify_all ||
+        selectedCategories.length > 0;
+      const supportsTopics = supportsTopicSubscriptions();
 
       // --- 需要通知的情境 ---
       if (needsNotification) {
@@ -144,35 +165,67 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           }
         }
 
-        // 3. 取得推播 Token（原生走 Capacitor，Web 走 FCM）
-        const fcmToken = await getFCMToken();
-
-        if (!fcmToken && !isNativeApp) {
-          // Web 上取不到 Token → 阻止同步
-          alert("無法取得推播 Token，請確認網路連線或重新整理頁面後再試");
-          setSyncStatus("error");
-          setTimeout(() => setSyncStatus("idle"), 2000);
-          return;
+        // 3. 取得推播 Token（支援 topic 時不回傳 token，只用於權限/註冊）
+        let fcmToken: string | null = null;
+        if (!supportsTopics) {
+          fcmToken = await getFCMToken();
+          if (!fcmToken && !isNativeApp) {
+            // Web 上取不到 Token → 阻止同步
+            alert("無法取得推播 Token，請確認網路連線或重新整理頁面後再試");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
+        } else if (isNativeApp) {
+          fcmToken = await getFCMToken();
+          if (!fcmToken) {
+            alert("無法啟用原生推播，請確認網路與 Firebase 設定後再試");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
         }
 
-        // 4. 帶 FCM Token 同步（原生若取不到 token 仍會同步設定，只是不帶 token）
-        const updatedProfile = { ...profile, fcm_token: fcmToken || "" };
-        if (!fcmToken && isNativeApp) {
+        // 4. 帶 FCM Token 同步（支援 topic 時清空 token）
+        const updatedProfile = {
+          ...profile,
+          notify_categories: selectedCategories,
+          fcm_token: supportsTopics ? "" : fcmToken || "",
+        };
+        if (!fcmToken && isNativeApp && !supportsTopics) {
           console.warn("原生推播 Token 取得失敗，已同步設定但未啟用推播（請確認 google-services.json 已設定）");
         }
         const res = await syncUserProfile(updatedProfile);
         const synced = { ...updatedProfile, updated_at: res.updated_at || new Date().toISOString() };
         setProfile(synced);
         saveLocalUserProfile(synced);
+        if (supportsTopics) {
+          const topicResult = await syncTopicSubscriptions(synced);
+          if (!topicResult.success) {
+            alert("訂閱主題失敗，請稍後再試");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
+        }
         setSyncStatus("synced");
       } else {
         // --- 不需要通知的情境（division = "no disturb" 且 notify_all = false）---
         // 清除 fcm_token，同步設定到後端
-        const updatedProfile = { ...profile, fcm_token: "" };
+        const updatedProfile = { ...profile, notify_categories: [], fcm_token: "" };
         const res = await syncUserProfile(updatedProfile);
         const synced = { ...updatedProfile, updated_at: res.updated_at || new Date().toISOString() };
         setProfile(synced);
         saveLocalUserProfile(synced);
+        if (supportsTopics) {
+          const topicResult = await syncTopicSubscriptions(synced);
+          if (!topicResult.success) {
+            alert("訂閱主題失敗，請稍後再試");
+            setSyncStatus("error");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+            return;
+          }
+        }
         setSyncStatus("synced");
       }
     } catch (error) {
@@ -189,6 +242,29 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
       setProfile((prev) => ({ ...prev, [field]: value }));
     },
     []
+  );
+
+  const toggleCategory = useCallback((categoryId: AnnouncementCategory) => {
+    setProfile((prev) => {
+      const current = prev.notify_categories ?? [];
+      const exists = current.includes(categoryId);
+      const next = exists
+        ? current.filter((id) => id !== categoryId)
+        : [...current, categoryId];
+      return { ...prev, notify_categories: next };
+    });
+  }, []);
+
+  const selectAllCategories = useCallback(() => {
+    setProfile((prev) => ({ ...prev, notify_categories: ALL_CATEGORY_IDS }));
+  }, []);
+
+  const clearAllCategories = useCallback(() => {
+    setProfile((prev) => ({ ...prev, notify_categories: [] }));
+  }, []);
+
+  const isAllCategoriesSelected = ALL_CATEGORY_IDS.every((id) =>
+    (profile.notify_categories ?? []).includes(id)
   );
 
   if (loading) {
@@ -259,6 +335,72 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           </div>
         </section>
 
+        {/* 分類公告訂閱 */}
+        <section className="bg-card border border-border rounded-sm p-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xs font-medium text-foreground">接收分類公告</h2>
+            {profile.notify_all && (
+              <span className="text-[10px] text-amber-600 font-light">已鎖定為全部</span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground/50 font-light mb-3">
+            選擇要接收的公告類別（重要公告另行設定）
+          </p>
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={() => !profile.notify_all && selectAllCategories()}
+              disabled={profile.notify_all || isAllCategoriesSelected}
+              className={`px-2.5 py-1 rounded-sm text-[11px] border transition-all ${
+                profile.notify_all || isAllCategoriesSelected
+                  ? "bg-muted text-muted-foreground border-muted cursor-not-allowed"
+                  : "bg-card text-foreground border-border hover:border-foreground/20"
+              }`}
+            >
+              勾選全部
+            </button>
+            <button
+              onClick={() => !profile.notify_all && clearAllCategories()}
+              disabled={profile.notify_all || (profile.notify_categories ?? []).length === 0}
+              className={`px-2.5 py-1 rounded-sm text-[11px] border transition-all ${
+                profile.notify_all || (profile.notify_categories ?? []).length === 0
+                  ? "bg-muted text-muted-foreground border-muted cursor-not-allowed"
+                  : "bg-card text-foreground border-border hover:border-foreground/20"
+              }`}
+            >
+              取消勾選全部
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {CATEGORY_OPTIONS.map((opt) => {
+              const isSelected = (profile.notify_categories ?? []).includes(opt.id);
+              const isDisabled = profile.notify_all;
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => !isDisabled && toggleCategory(opt.id)}
+                  disabled={isDisabled}
+                  className={`relative flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-sm border transition-all text-left ${
+                    isDisabled
+                      ? "border-border/50 bg-muted/30 cursor-not-allowed opacity-50"
+                      : isSelected
+                      ? "border-foreground/40 bg-foreground/5"
+                      : "border-border hover:border-foreground/20"
+                  }`}
+                >
+                  <span className={`text-sm ${isSelected ? "text-foreground font-medium" : "text-foreground/70"}`}>
+                    {opt.label}
+                  </span>
+                  {isSelected && (
+                    <span className="absolute top-2 right-2">
+                      <Check size={12} strokeWidth={2.5} className="text-foreground/60" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         {/* 通知開關 */}
         <section className="bg-card border border-border rounded-sm p-4">
           <div className="flex items-center justify-between">
@@ -271,7 +413,9 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
               <div>
                 <h2 className="text-xs font-medium text-foreground">接收所有公告</h2>
                 <p className="text-[10px] text-muted-foreground/50 font-light mt-0.5">
-                  {profile.notify_all ? "將收到所有公告通知，部別選擇已鎖定" : "僅接收重要公告通知"}
+                  {profile.notify_all
+                    ? "將收到所有公告（重要 + 分類），部別與類別已鎖定"
+                    : "僅接收已選擇的公告類型"}
                 </p>
               </div>
             </div>
@@ -284,6 +428,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
                   ...prev,
                   notify_all: newNotifyAll,
                   division: newNotifyAll ? "all" : prev.division,
+                  notify_categories: newNotifyAll ? ALL_CATEGORY_IDS : prev.notify_categories,
                 }));
               }}
               className={`relative w-10 h-[22px] rounded-full transition-colors duration-200 ${

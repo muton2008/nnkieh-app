@@ -19,6 +19,7 @@ import { getLocalUserProfile, saveLocalUserProfile, syncUserProfile } from "@/li
 import { fetchTimetable, fetchSchoolCalendar } from "@/lib/api-client";
 import { syncExamWidgetData } from "@/lib/timetable-widget";
 import { getFCMToken } from "@/lib/firebase";
+import { supportsTopicSubscriptions } from "@/lib/fcm-topics";
 
 // --- Types ---
 import type { NoteCategory } from "@/lib/types/timetable";
@@ -138,11 +139,18 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
       try {
         // 0. 優先載入用戶 profile（必須在 setLoading(false) 之前，避免 FCM 刷新拿到 DEFAULT）
         const storedProfile = getLocalUserProfile();
-        const initialProfile = storedProfile || {
-          device_id: deviceId,
-          division: "no disturb" as const,
-          notify_all: false,
-        };
+        const initialProfile = storedProfile
+          ? {
+              ...DEFAULT_USER_PROFILE,
+              ...storedProfile,
+              device_id: deviceId,
+              notify_categories:
+                storedProfile.notify_categories ?? DEFAULT_USER_PROFILE.notify_categories,
+            }
+          : {
+              ...DEFAULT_USER_PROFILE,
+              device_id: deviceId,
+            };
         setProfile(initialProfile);
         setProfileReady(true);
 
@@ -260,6 +268,8 @@ export function HomePage({ deviceId, onNavigate }: HomePageProps) {
 
     const refreshFCMToken = async () => {
       try {
+        if (supportsTopicSubscriptions()) return;
+        if (typeof Notification === "undefined") return;
         // 檢查通知權限，若已授予則自動更新 token
         if (Notification.permission === "granted") {
           const latestToken = await getFCMToken();

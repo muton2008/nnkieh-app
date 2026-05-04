@@ -38,6 +38,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       "新增巡迴巴士資訊",
       "修正主頁面課表顯示問題",
+      "新增分類公告通知",
       "順便準備明天的模擬面試",
       ]
   }
