@@ -71,7 +71,7 @@
     "dayjs": "^1.11.19",
     "embla-carousel-react": "8.5.1",
     "firebase": "^12.9.0",
-    "firebase-admin": "^10.3.0",
+    "firebase-admin": "^14.1.0",
     "framer-motion": "^12.34.3",
     "https-proxy-agent": "^9.0.0",
     "input-otp": "1.4.1",
@@ -111,12 +111,11 @@
     "vitest": "^4.1.9"
   },
   "allowScripts": {
-    "@firebase/util@1.13.0": true,
     "esbuild@0.28.1": true,
     "esbuild@0.21.5": true,
     "unrs-resolver@1.11.1": true,
-    "protobufjs@6.11.6": true,
-    "protobufjs@6.11.3": true,
-    "sharp@0.34.5": true
+    "sharp@0.32.6": true,
+    "@firebase/util@1.15.1": true,
+    "protobufjs@7.6.4": true
   }
 }

@@ -1,12 +1,14 @@
-import admin from "firebase-admin";
+import { initializeApp, getApps, getApp, cert, App } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 /**
  * 初始化 Firebase Admin SDK
  */
-function getFirebaseAdmin(): admin.app.App {
+function getFirebaseAdmin(): App {
+  const apps = getApps();
   // 如果已經初始化，直接回傳
-  if (admin.apps.length > 0) {
-    return admin.apps[0]!;
+  if (apps.length > 0) {
+    return apps[0]!;
   }
 
   // 取得環境變數
@@ -26,8 +28,8 @@ function getFirebaseAdmin(): admin.app.App {
     }
 
     // 初始化
-    return admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+    return initializeApp({
+      credential: cert(serviceAccount),
       projectId: serviceAccount.project_id,
     });
   } catch (error) {
@@ -37,7 +39,7 @@ function getFirebaseAdmin(): admin.app.App {
 }
 
 /**
- * 對 FCM Topic 發送通知 (保持不變，但建議加入 error 顯示)
+ * 對 FCM Topic 發送通知
  */
 export async function sendTopicNotification(
   topic: string,
@@ -47,7 +49,7 @@ export async function sendTopicNotification(
 ): Promise<string | null> {
   try {
     const app = getFirebaseAdmin();
-    const messaging = admin.messaging(app);
+    const messaging = getMessaging(app); // ✨ 改用新版方法
 
     const response = await messaging.send({
       topic: topic.replace("/topics/", ""),
@@ -81,7 +83,7 @@ export async function sendToTokens(
 
   try {
     const app = getFirebaseAdmin();
-    const messaging = admin.messaging(app);
+    const messaging = getMessaging(app); // ✨ 改用新版方法
 
     const response = await messaging.sendEachForMulticast({
       tokens,
