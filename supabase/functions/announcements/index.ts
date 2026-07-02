@@ -533,9 +533,10 @@ async function sendFCMBroadcast(
               },
               data: {
                 title: title,
-                type: "announcement",
+                type: postId ? "announcement" : "",
                 announcement_id: postId ? String(postId) : "",
                 post_id: postId ? String(postId) : "",
+                tab: postId ? "" : "news",
                 link: postId ? `/?type=announcement&announcement_id=${postId}` : `/?tab=news`,
                 original_link: link,
               },
@@ -545,12 +546,8 @@ async function sendFCMBroadcast(
                   link: postId ? `/?type=announcement&announcement_id=${postId}` : `/?tab=news`,
                 },
               },
-              // Android：點擊後開啟連結
-              android: {
-                notification: {
-                  click_action: "OPEN_URL",
-                },
-              },
+              // Android：預設讓 Capacitor 處理點擊，不要加 click_action 避免 data 遺失
+              android: {},
               // iOS/APNs
               apns: {
                 payload: {
@@ -629,9 +626,10 @@ async function sendFCMTopicBroadcast(
             },
             data: {
               title: title,
-              type: "announcement",
+              type: postId ? "announcement" : "",
               announcement_id: postId ? String(postId) : "",
               post_id: postId ? String(postId) : "",
+              tab: postId ? "" : "news",
               link: postId
                 ? `/?type=announcement&announcement_id=${postId}`
                 : `/?tab=news`,
@@ -644,11 +642,7 @@ async function sendFCMTopicBroadcast(
                   : `/?tab=news`,
               },
             },
-            android: {
-              notification: {
-                click_action: "OPEN_URL",
-              },
-            },
+            android: {},
             apns: {
               payload: {
                 aps: {

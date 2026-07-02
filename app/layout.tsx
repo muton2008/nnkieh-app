@@ -5,6 +5,7 @@ import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { CapacitorInit } from "@/components/capacitor-init";
+import { AppIconSync } from "@/components/app-icon-sync";
 import { Toaster } from "@/components/ui/toaster";
 
 const notoSans = Noto_Sans_TC({
@@ -50,6 +51,7 @@ export default function RootLayout({
       <body className="font-sans antialiased desktop-shell min-h-screen safe-area-all">
       <ServiceWorkerRegister />
       <CapacitorInit />
+      <AppIconSync />
         <div className="mx-auto max-w-[450px] min-h-screen bg-background relative shadow-sm">
           {children}
         </div>

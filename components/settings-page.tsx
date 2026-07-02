@@ -6,6 +6,23 @@ import { Button } from "@/components/ui/button";
 import { getFCMToken } from "@/lib/firebase";
 import { syncTopicSubscriptions, supportsTopicSubscriptions } from "@/lib/fcm-topics";
 import { toast } from "sonner";
+import {
+  APP_ICON_VARIANTS,
+  getAppIconHref,
+  getAppIconVariantFromStorage,
+  setAppIconVariant,
+  syncAppIconVariantFromStorage,
+  type AppIconVariant,
+} from "@/lib/app-icon";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import {
   DEFAULT_USER_PROFILE,
@@ -51,7 +68,12 @@ interface SettingsPageProps {
   deviceId: string;
 }
 
+type IconVariant = "A" | "B" | "C";
+
 export function SettingsPage({ deviceId }: SettingsPageProps) {
+  const [topicSyncInfo, setTopicSyncInfo] = useState<
+    null | { success: boolean; failed: string[]; at: string }
+  >(null);
   const [subPage, _setSubPage] = useState<null | "privacy" | "licenses">(null);
   const setSubPage = useCallback((page: null | "privacy" | "licenses") => {
     _setSubPage(page);
@@ -66,6 +88,8 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
   const [profileReady, setProfileReady] = useState(false);
   const [copied, setCopied] = useState(false);
   const [changelogVersion, setChangelogVersion] = useState(CHANGELOG[CHANGELOG.length - 1]?.version || "");
+  const [appIconVariant, setAppIconVariantState] = useState<AppIconVariant>("C");
+  const [previewIcon, setPreviewIcon] = useState<IconVariant | null>(null);
 
   const copyDeviceId = useCallback(async () => {
     try {
@@ -117,6 +141,30 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
     return () => { cancelled = true; };
   }, [deviceId]);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("topic_sync_info");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { success: boolean; failed: string[]; at: string };
+        setTopicSyncInfo(parsed);
+      }
+    } catch {
+      setTopicSyncInfo(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedVariant = getAppIconVariantFromStorage();
+    setAppIconVariantState(storedVariant);
+    void syncAppIconVariantFromStorage();
+  }, []);
+
+  const persistTopicSyncInfo = useCallback((info: { success: boolean; failed: string[] }) => {
+    const payload = { ...info, at: new Date().toISOString() };
+    setTopicSyncInfo(payload);
+    localStorage.setItem("topic_sync_info", JSON.stringify(payload));
+  }, []);
+
   const handleSync = useCallback(async () => {
     if (syncStatus === "syncing" || !profileReady) return;
     setSyncStatus("syncing");
@@ -165,7 +213,7 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           }
         }
 
-        // 3. 取得推播 Token（支援 topic 時不回傳 token，只用於權限/註冊）
+        // 3. 取得推播 Token（支援 topic 時保留作為失敗後的 fallback）
         let fcmToken: string | null = null;
         if (!supportsTopics) {
           fcmToken = await getFCMToken();
@@ -186,11 +234,28 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           }
         }
 
-        // 4. 帶 FCM Token 同步（支援 topic 時清空 token）
+        let topicResult: { success: boolean; failed: string[] } | null = null;
+        if (supportsTopics) {
+          topicResult = await syncTopicSubscriptions({
+            ...profile,
+            notify_categories: selectedCategories,
+          });
+          persistTopicSyncInfo({
+            success: topicResult.success,
+            failed: topicResult.failed,
+          });
+          if (!topicResult.success) {
+            alert("訂閱主題失敗，已改用 token 推播");
+          }
+        }
+
+        const useTopics = supportsTopics && topicResult?.success;
+
+        // 4. 帶 FCM Token 同步（topic 成功才清空 token）
         const updatedProfile = {
           ...profile,
           notify_categories: selectedCategories,
-          fcm_token: supportsTopics ? "" : fcmToken || "",
+          fcm_token: useTopics ? "" : fcmToken || profile.fcm_token || "",
         };
         if (!fcmToken && isNativeApp && !supportsTopics) {
           console.warn("原生推播 Token 取得失敗，已同步設定但未啟用推播（請確認 google-services.json 已設定）");
@@ -199,15 +264,6 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         const synced = { ...updatedProfile, updated_at: res.updated_at || new Date().toISOString() };
         setProfile(synced);
         saveLocalUserProfile(synced);
-        if (supportsTopics) {
-          const topicResult = await syncTopicSubscriptions(synced);
-          if (!topicResult.success) {
-            alert("訂閱主題失敗，請稍後再試");
-            setSyncStatus("error");
-            setTimeout(() => setSyncStatus("idle"), 2000);
-            return;
-          }
-        }
         setSyncStatus("synced");
       } else {
         // --- 不需要通知的情境（division = "no disturb" 且 notify_all = false）---
@@ -219,6 +275,10 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
         saveLocalUserProfile(synced);
         if (supportsTopics) {
           const topicResult = await syncTopicSubscriptions(synced);
+          persistTopicSyncInfo({
+            success: topicResult.success,
+            failed: topicResult.failed,
+          });
           if (!topicResult.success) {
             alert("訂閱主題失敗，請稍後再試");
             setSyncStatus("error");
@@ -261,6 +321,11 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
 
   const clearAllCategories = useCallback(() => {
     setProfile((prev) => ({ ...prev, notify_categories: [] }));
+  }, []);
+
+  const handleAppIconVariantChange = useCallback((variant: AppIconVariant) => {
+    void setAppIconVariant(variant);
+    setAppIconVariantState(variant);
   }, []);
 
   const isAllCategoriesSelected = ALL_CATEGORY_IDS.every((id) =>
@@ -444,6 +509,108 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
           </div>
         </section>
 
+        <section className="bg-card border border-border rounded-sm p-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xs font-medium text-foreground">應用圖示</h2>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground/50 font-light mb-3">
+            可切換網站與 app 內顯示的圖示版本，應用圖示由佰十五級陳欣蕾(校花?)設計
+          </p>
+
+          <div className="grid grid-cols-3 gap-2">
+            {APP_ICON_VARIANTS.map((variant) => {
+              const isSelected = appIconVariant === variant;
+
+              return (
+                <button
+                  key={variant}
+                  onClick={() => setPreviewIcon(variant)}
+                  className={`relative flex flex-col items-center gap-2 px-3 py-3 rounded-sm border transition-all text-left ${
+                    isSelected
+                      ? "border-foreground/40 bg-foreground/5"
+                      : "border-border hover:border-foreground/20"
+                  }`}
+                >
+                  <img
+                    src={getAppIconHref(variant, "favicon192")}
+                    alt={`${variant} 圖示預覽`}
+                    className="h-12 w-12 rounded-lg object-cover"
+                  />
+
+                  <span
+                    className={`text-sm ${
+                      isSelected
+                        ? "text-foreground font-medium"
+                        : "text-foreground/70"
+                    }`}
+                  >
+                    版本 {variant}
+                  </span>
+
+                  {isSelected && (
+                    <span className="absolute top-2 right-2">
+                      <Check
+                        size={12}
+                        strokeWidth={2.5}
+                        className="text-foreground/60"
+                      />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <Dialog
+            open={previewIcon !== null}
+            onOpenChange={(open) => {
+              if (!open) setPreviewIcon(null);
+            }}
+          >
+            <DialogContent
+              className="w-[calc(100vw-2rem)] max-w-md rounded-xl"
+            >
+              {previewIcon && (
+                <>
+                  <DialogHeader>
+                    <DialogTitle>版本 {previewIcon}</DialogTitle>
+                    <DialogDescription>
+                      確認後將切換為此應用圖示。
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="flex justify-center py-4">
+                    <img
+                      src={getAppIconHref(previewIcon, "favicon512")}
+                      alt={`版本 ${previewIcon}`}
+                      className="w-full max-w-64 aspect-square mx-auto rounded-3xl object-cover"
+                    />
+                  </div>
+
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setPreviewIcon(null)}
+                    >
+                      取消
+                    </Button>
+
+                    <Button
+                      onClick={() => {
+                        handleAppIconVariantChange(previewIcon);
+                        setPreviewIcon(null);
+                      }}
+                    >
+                      使用此圖示
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
+        </section>
+
         {/* 同步按鈕 */}
         <Button
           onClick={handleSync}
@@ -525,6 +692,22 @@ export function SettingsPage({ deviceId }: SettingsPageProps) {
             <div className="flex justify-between">
               <span>App 版本</span>
               <span className="text-muted-foreground/80">v{APP_VERSION}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Topic 支援</span>
+              <span className="text-muted-foreground/80">
+                {supportsTopicSubscriptions() ? "是" : "否"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>Topic 同步</span>
+              <span className="text-muted-foreground/80">
+                {topicSyncInfo
+                  ? topicSyncInfo.success
+                    ? "成功"
+                    : "失敗"
+                  : "尚未同步"}
+              </span>
             </div>
             <button
               onClick={copyDeviceId}

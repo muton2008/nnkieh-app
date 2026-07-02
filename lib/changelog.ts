@@ -41,6 +41,14 @@ export const CHANGELOG: ChangelogEntry[] = [
       "新增分類公告通知",
       "順便準備明天的模擬面試",
       ]
+  },
+  {
+    version: "0.3.1-beta",
+    date: "2026-07-02",
+    changes: [
+      "修改應用程式圖標",
+      "順便去了一趟日本",
+    ]
   }
 ];
 
